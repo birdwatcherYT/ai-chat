@@ -99,3 +99,22 @@ def vosk_test(c: Config, loop: bool = False):
     else:
         text = asr.audio_input()
         print(text)
+
+
+@task
+def gemini_test(c: Config, loop: bool = False):
+    """Geminiのテスト"""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    from src.asr.gemini_asr import GeminiASR
+
+    print("読み取り開始")
+    asr = GeminiASR(c.config.gemini.model, **c.config.webrtcvad)
+    if loop:
+        while True:
+            text = asr.audio_input()
+            print(text)
+    else:
+        text = asr.audio_input()
+        print(text)

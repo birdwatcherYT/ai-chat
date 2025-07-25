@@ -67,6 +67,10 @@ async def chat_start(cfg: Config):
         from .asr.whisper_asr import WhisperASR
 
         asr = WhisperASR(**cfg.whisper, **cfg.webrtcvad)
+    elif cfg.chat.user.input == "gemini":
+        from .asr.gemini_asr import GeminiASR
+
+        asr = GeminiASR(cfg.config.gemini.model, **cfg.webrtcvad)
 
     # 音声合成の設定
     engines = {
@@ -160,11 +164,11 @@ async def chat_start(cfg: Config):
         if len(history) % cfg.chat.image.interval == 0:
             # 指定間隔ごとに画像生成を非同期で行う
             print("Generating image in background...")
-            asyncio.create_task(asyncio.to_thread(
-                image_generator.generate_image,
-                history,
-                cfg.chat.image.edit
-            ))
+            asyncio.create_task(
+                asyncio.to_thread(
+                    image_generator.generate_image, history, cfg.chat.image.edit
+                )
+            )
 
         # ターン決定
         turn = llms.get_next_speaker(history, except_names=[turn])

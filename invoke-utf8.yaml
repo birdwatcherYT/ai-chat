@@ -3,7 +3,7 @@ chat:
     name: U # 呼ばれたい名前に変える
     character: | # あなたのプロフィール
       - 男
-    input: text # text, vosk, whisper, ai
+    input: text # text, vosk, whisper, gemini, ai
     voice: # aiモードのときのみ使う
       engine: null # null, voicevox, coeiroink, aivisspeech
       # config:
