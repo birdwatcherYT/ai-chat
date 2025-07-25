@@ -158,9 +158,13 @@ async def chat_start(cfg: Config):
             await processing_task
 
         if len(history) % cfg.chat.image.interval == 0:
-            # 指定間隔ごとに画像生成を行う
-            print("Generating image...")
-            image_generator.generate_image(history, cfg.chat.image.edit)
+            # 指定間隔ごとに画像生成を非同期で行う
+            print("Generating image in background...")
+            asyncio.create_task(asyncio.to_thread(
+                image_generator.generate_image,
+                history,
+                cfg.chat.image.edit
+            ))
 
         # ターン決定
         turn = llms.get_next_speaker(history, except_names=[turn])
