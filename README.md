@@ -12,6 +12,7 @@ AIチャット
 - 音声認識を使う場合
     - [VOSK Models](https://alphacephei.com/vosk/models)から`vosk-model-ja-0.22`をDLして展開
     - whisperを使う場合は設定不要（初回に自動ダウンロードされます）
+    - geminiを使う場合は前述のAPIキーの設定のみ
 - 動作確認
     - windows: `uv run inv -f invoke-shiftjis.yaml --list`
     - mac: `uv run inv -f invoke-utf8.yaml --list`
@@ -38,3 +39,5 @@ AIチャット
 ## 使い方
 1. 音声合成を使う場合、裏でGUIを起動しておく
 2. `uv run inv chat`
+    - windows: `uv run inv -f invoke-shiftjis.yaml chat`
+    - mac: `uv run inv -f invoke-utf8.yaml chat`
