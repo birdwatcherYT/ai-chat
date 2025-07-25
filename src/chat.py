@@ -94,18 +94,12 @@ async def chat_start(cfg: Config):
         for item in cfg.chat.initial_message
     ]
 
-    prev_turn = None
     turn = llmcfg.format(cfg.chat.initial_turn)
-
-    # チャット全体をループで実行（各ターンごとにユーザー入力とテキスト生成を処理）
-    print(f"{turn}: ", end="", flush=True)
-
+    # チャット全体をループで実行
     while True:
-        if turn is None:
-            turn = llms.get_next_speaker(history, except_names=[prev_turn])
-            print(f"{turn}: ", end="", flush=True)
-        # ユーザー入力取得（音声入力の場合は asr.audio_input、テキストの場合は input()）
+        print(f"{turn}: ", end="", flush=True)
         if turn == user_name and cfg.chat.user.input != "ai":
+            # ユーザー入力取得（音声入力の場合は asr.audio_input、テキストの場合は input()）
             if cfg.chat.user.input == "text":
                 user_input = await asyncio.to_thread(input)
             else:
@@ -113,60 +107,60 @@ async def chat_start(cfg: Config):
                 print(user_input, flush=True)
 
             history.append({"name": user_name, "content": user_input})
+        else:
+            # AIのターンの場合は LLM からの応答を生成
+            text_queue = asyncio.Queue()
 
-            turn = llms.get_next_speaker(history, except_names=[prev_turn])
-            print(f"{turn}: ", end="", flush=True)
-
-        text_queue = asyncio.Queue()
-
-        async def process_text_queue():
-            nonlocal history, turn, prev_turn
-            answer = ""
-
-            while True:
-                chunk = await text_queue.get()
-                if chunk is None:
-                    break  # ストリーム終了の合図
-                # 生成されたチャンクを即座に表示
-                print(chunk.content, end="", flush=True)
-                answer += chunk.content
-                # 指定された文字が現れたタイミングで音声合成
-                if answer and answer[-1] in cfg.chat.streaming_voice_output:
-                    await synthesis_queue.put((turn, answer))
-                    history.append({"name": turn, "content": answer})
-                    answer = ""
-                text_queue.task_done()
-
-            answer = answer.strip()
-            if turn and answer:
-                await synthesis_queue.put((turn, answer))
-                history.append({"name": turn, "content": answer})
+            async def process_text_queue():
+                nonlocal turn
                 answer = ""
+                full_answer = ""
 
-            # 上記でメッセージ追記後の改行
-            print()
-            prev_turn = turn
-            turn = None
+                while True:
+                    chunk = await text_queue.get()
+                    if chunk is None:
+                        break  # ストリーム終了の合図
+                    # 生成されたチャンクを即座に表示
+                    print(chunk.content, end="", flush=True)
+                    answer += chunk.content
+                    # 指定された文字が現れたタイミングで音声合成
+                    if answer and answer[-1] in cfg.chat.streaming_voice_output:
+                        await synthesis_queue.put((turn, answer))
+                        full_answer += answer
+                        answer = ""
+                    text_queue.task_done()
 
-        # テキスト処理タスクを開始
-        processing_task = asyncio.create_task(process_text_queue())
+                answer = answer.strip()
+                if answer:
+                    await synthesis_queue.put((turn, answer))
+                    full_answer += answer
+                    answer = ""
 
-        loop = asyncio.get_running_loop()
-        # 実行時にのみ必要な変数を渡す
-        utter_prompt_vars = {"speaker": turn, "messages": history_to_text(history)}
+                # 上記でメッセージ追記後の改行
+                print()
+                history.append({"name": turn, "content": full_answer})
 
-        def generate_text():
-            for chunk in utter_chain.stream(utter_prompt_vars):
-                asyncio.run_coroutine_threadsafe(text_queue.put(chunk), loop)
-            # ストリーム終了の合図として None を投入
-            asyncio.run_coroutine_threadsafe(text_queue.put(None), loop)
+            # テキスト処理タスクを開始
+            processing_task = asyncio.create_task(process_text_queue())
 
-        await asyncio.to_thread(generate_text)
-        # テキスト処理タスクが完了するのを待つ
-        await processing_task
+            loop = asyncio.get_running_loop()
+            # 実行時にのみ必要な変数を渡す
+            utter_prompt_vars = {"speaker": turn, "messages": history_to_text(history)}
 
-        if len(history) % 4 == 0:
-            # 4ターンごとに画像生成を行う
+            def generate_text():
+                for chunk in utter_chain.stream(utter_prompt_vars):
+                    asyncio.run_coroutine_threadsafe(text_queue.put(chunk), loop)
+                # ストリーム終了の合図として None を投入
+                asyncio.run_coroutine_threadsafe(text_queue.put(None), loop)
+
+            await asyncio.to_thread(generate_text)
+            # テキスト処理タスクが完了するのを待つ
+            await processing_task
+
+        if len(history) % cfg.chat.image.interval == 0:
+            # 指定間隔ごとに画像生成を行う
             print("Generating image...")
-            # image_generator.generate_image(history)
-            image_generator.generate_image(history, True)
+            image_generator.generate_image(history, cfg.chat.image.edit)
+
+        # ターン決定
+        turn = llms.get_next_speaker(history, except_names=[turn])

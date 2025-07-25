@@ -37,8 +37,11 @@ chat:
       content: "こんにちは。"
     - name: "{ai0_name}"
       content: "こんにちは。今日もお疲れ様。"
-  streaming_voice_output: ["。", "！", "？", "!", "?"]
   initial_turn: "{user_name}"
+  streaming_voice_output: ["。", "！", "？", "!", "?"]
+  image:
+    edit: false
+    interval: 5
 
 gemini:
   # model: gemini-2.5-flash-lite
@@ -47,7 +50,6 @@ gemini:
 image:
   model: gemini-2.0-flash-preview-image-generation
   path: ./gemini-image.png
-  edit: false
 
 vosk: # 音声認識のモデルへのパス
   model_dir: ./vosk-model-ja-0.22

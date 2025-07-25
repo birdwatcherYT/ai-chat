@@ -35,7 +35,7 @@ class ImageGenerator:
 {chara_prompt}
 
 # 会話履歴
-```
+```json
 {messages}
 ```
 """,
@@ -50,11 +50,10 @@ class ImageGenerator:
     def generate_image(self, history: list[dict[str, str]], edit: bool = False):
         situation = self.situation_chain.invoke({"messages": history_to_text(history)})
         print("-" * 20, "状況説明", "-" * 20, "\n", situation, "\n", "-" * 20)
-        if edit:
+        if edit and self.image_data:
             prompt = (
                 f"現在の画像から次の状況を表すアニメ風画像を生成してください:\n{situation}",
             )
-            # image = Image.open(self.llmcfg.image.path)
             image = self.image_data
             self._generate_image(prompt, image)
         else:

@@ -26,7 +26,7 @@ class LLMs:
     {user_character}
     {chara_prompt}
     # 会話履歴
-    ```
+    ```json
     {messages}
     ```
     """,
@@ -75,7 +75,7 @@ class LLMs:
     {user_character}
     {chara_prompt}
     # 会話履歴
-    ```
+    ```json
     {messages}
     ```
     """,
@@ -86,4 +86,3 @@ class LLMs:
             },
         )
         return utter_prompt_template | self.llm
-
