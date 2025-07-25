@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 
 load_dotenv()  # .envファイルから環境変数を読み込む
 
-import json
 import asyncio
 import sounddevice as sd
 from invoke.config import Config
@@ -12,8 +11,10 @@ from .asr.base import SpeechToText
 from .tts.voicevox import VoiceVox
 from .tts.coeiroink import CoeiroInk
 from .tts.aivisspeech import AivisSpeech
-from .lmm.img import generate_image
-from .lmm.llm import LLMs, history_to_text
+
+from .lmm.common import LLMConfig, history_to_text
+from .lmm.llm import LLMs
+from .lmm.img import ImageGenerator
 
 
 async def playback_worker(queue: asyncio.Queue, asr: SpeechToText):
@@ -47,12 +48,14 @@ async def synthesis_worker(
 
 
 async def chat_start(cfg: Config):
-    user_name = cfg.chat.user.name
-    ai_names = {f"ai{i}_name": ai["name"] for i, ai in enumerate(cfg.chat.ai)}
+    llmcfg = LLMConfig(cfg)
 
+    user_name = cfg.chat.user.name
     # LLMの設定
-    llms = LLMs(cfg, user_name=user_name, ai_names=ai_names)
+    llms = LLMs(llmcfg)
     utter_chain = llms.get_utter_chain()
+    # 画像生成の設定
+    image_generator = ImageGenerator(llmcfg)
 
     # 音声認識の設定
     asr: SpeechToText = None
@@ -87,15 +90,12 @@ async def chat_start(cfg: Config):
 
     # 発話履歴をリストで管理
     history = [
-        {
-            "name": item["name"].format(user_name=user_name, **ai_names),
-            "content": item["content"].format(user_name=user_name, **ai_names),
-        }
+        {"name": llmcfg.format(item["name"]), "content": llmcfg.format(item["content"])}
         for item in cfg.chat.initial_message
     ]
 
     prev_turn = None
-    turn = cfg.chat.initial_turn.format(user_name=user_name, **ai_names)
+    turn = llmcfg.format(cfg.chat.initial_turn)
 
     # チャット全体をループで実行（各ターンごとにユーザー入力とテキスト生成を処理）
     print(f"{turn}: ", end="", flush=True)
@@ -163,3 +163,8 @@ async def chat_start(cfg: Config):
         await asyncio.to_thread(generate_text)
         # テキスト処理タスクが完了するのを待つ
         await processing_task
+
+        if len(history) % 4 == 0:
+            # 4ターンごとに画像生成を行う
+            print("Generating image...")
+            image_generator.generate_image(history)

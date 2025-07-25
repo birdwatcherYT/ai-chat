@@ -43,6 +43,7 @@ chat:
 gemini:
   # model: gemini-2.5-flash-lite
   model: gemini-2.0-flash
+  image_model: gemini-2.0-flash-preview-image-generation
 
 vosk: # 音声認識のモデルへのパス
   model_dir: ./vosk-model-ja-0.22
