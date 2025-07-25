@@ -11,7 +11,7 @@ class LLMs:
         self.ai_names = ai_names
         self.char_names = list(ai_names.values()) + [user_name]
 
-        self.llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+        self.llm = ChatGoogleGenerativeAI(**cfg.gemini)
         # キャラクター設定のプロンプト生成
         self.user_prompt = cfg.chat.user.character.format(
             user_name=user_name, **ai_names
