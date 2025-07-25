@@ -12,11 +12,13 @@ dependencies = [
     "langchain>=0.3.27",
     "langchain-core>=0.3.71",
     "langchain-google-genai>=2.1.8",
+    "langchain-ollama>=0.3.6",
     "pillow>=11.3.0",
     "python-dotenv>=1.1.1",
     "requests>=2.32.3",
     "sounddevice>=0.5.1",
     "soundfile>=0.13.1",
+    "streamlit>=1.47.1",
     "vosk>=0.3.45",
     "webrtcvad>=2.0.10",
 ]

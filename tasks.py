@@ -6,7 +6,7 @@ import asyncio
 @task
 def chat(c: Config):
     """AIとのチャット"""
-    from src.chat import chat_start
+    from main import chat_start
 
     # 非同期関数を実行
     asyncio.run(chat_start(c.config))

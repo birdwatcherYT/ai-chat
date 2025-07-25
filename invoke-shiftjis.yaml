@@ -41,11 +41,16 @@ chat:
   streaming_voice_output: ["。", "！", "？", "!", "?"]
   image:
     edit: false
-    interval: 5
+    interval: 10 # 画像生成頻度（使わない場合この値を大きくする）
+  model_engine: gemini # ここにLLMモデルのエンジンを指定します (gemini または ollama)
 
+# LLM
 gemini:
   # model: gemini-2.5-flash-lite
   model: gemini-2.0-flash
+
+ollama:
+  model: gemma3 # gemma3, gemma3nなど
 
 image:
   model: gemini-2.0-flash-preview-image-generation

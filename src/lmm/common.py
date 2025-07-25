@@ -21,8 +21,8 @@ class LLMConfig:
 
         self.gemini = cfg.gemini
         self.image = cfg.image
-
-        # print(self.chara_prompt)
+        self.ollama = cfg.ollama
+        self.model_engine = cfg.chat.model_engine
 
     def format(self, text: str) -> str:
         return text.format(user_name=self.user_name, **self.ai_names)
@@ -32,3 +32,4 @@ def history_to_text(history):
     return (
         "[\n" + ",\n".join([json.dumps(h, ensure_ascii=False) for h in history]) + "\n]"
     )
+

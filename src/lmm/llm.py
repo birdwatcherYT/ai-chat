@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Literal
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 import json
 from .common import LLMConfig, history_to_text
 
@@ -9,7 +10,11 @@ from .common import LLMConfig, history_to_text
 class LLMs:
     def __init__(self, llmcfg: LLMConfig):
         self.llmcfg = llmcfg
-        self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
+        # LLMの選択と初期化
+        if self.llmcfg.model_engine == "ollama":
+            self.llm = ChatOllama(**llmcfg.ollama)
+        elif self.llmcfg.model_engine == "gemini":
+            self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
         self.speaker_prompt_template = self.get_speaker_prompt_template()
 
     def get_speaker_prompt_template(self) -> PromptTemplate:
@@ -86,3 +91,4 @@ class LLMs:
             },
         )
         return utter_prompt_template | self.llm
+

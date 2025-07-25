@@ -6,15 +6,15 @@ import asyncio
 import sounddevice as sd
 from invoke.config import Config
 
-from .tts.base import TextToSpeech
-from .asr.base import SpeechToText
-from .tts.voicevox import VoiceVox
-from .tts.coeiroink import CoeiroInk
-from .tts.aivisspeech import AivisSpeech
+from src.tts.base import TextToSpeech
+from src.asr.base import SpeechToText
+from src.tts.voicevox import VoiceVox
+from src.tts.coeiroink import CoeiroInk
+from src.tts.aivisspeech import AivisSpeech
 
-from .lmm.common import LLMConfig, history_to_text
-from .lmm.llm import LLMs
-from .lmm.img import ImageGenerator
+from src.lmm.common import LLMConfig, history_to_text
+from src.lmm.llm import LLMs
+from src.lmm.img import ImageGenerator
 
 
 async def playback_worker(queue: asyncio.Queue, asr: SpeechToText):
