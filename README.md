@@ -38,7 +38,3 @@ AIチャット
 ## 使い方
 1. 音声合成を使う場合、裏でGUIを起動しておく
 2. `uv run inv chat`
-
-
-# TODO
-- gemini image genの編集機能をやってみる

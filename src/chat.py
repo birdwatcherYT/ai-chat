@@ -99,6 +99,7 @@ async def chat_start(cfg: Config):
 
     # チャット全体をループで実行（各ターンごとにユーザー入力とテキスト生成を処理）
     print(f"{turn}: ", end="", flush=True)
+
     while True:
         if turn is None:
             turn = llms.get_next_speaker(history, except_names=[prev_turn])
@@ -167,4 +168,5 @@ async def chat_start(cfg: Config):
         if len(history) % 4 == 0:
             # 4ターンごとに画像生成を行う
             print("Generating image...")
-            image_generator.generate_image(history)
+            # image_generator.generate_image(history)
+            image_generator.generate_image(history, True)

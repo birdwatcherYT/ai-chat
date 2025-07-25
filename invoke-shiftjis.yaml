@@ -46,6 +46,8 @@ gemini:
 
 image:
   model: gemini-2.0-flash-preview-image-generation
+  path: ./gemini-image.png
+  edit: false
 
 vosk: # 音声認識のモデルへのパス
   model_dir: ./vosk-model-ja-0.22

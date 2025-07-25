@@ -7,11 +7,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from io import BytesIO
-from invoke.config import Config
 
-import json
-from pydantic import BaseModel
-from typing import Literal
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
@@ -27,6 +23,7 @@ class ImageGenerator:
         self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
 
         self.situation_chain = self.get_situation_chain()
+        self.image_data: Image.Image = None
 
     def get_situation_chain(self):
         """会話履歴から状況を表すプロンプトを生成"""
@@ -50,25 +47,33 @@ class ImageGenerator:
         )
         return prompt | self.llm | StrOutputParser()
 
-    def generate_image(self, history: list[dict[str, str]]):
+    def generate_image(self, history: list[dict[str, str]], edit: bool = False):
         situation = self.situation_chain.invoke({"messages": history_to_text(history)})
-        print("-" * 20, "状況説明", "-" * 20)
-        print(situation)
-        print("-" * 20)
-        self._generate_image(f"次の状況を表すアニメ風画像を生成してください:\n{situation}")
+        print("-" * 20, "状況説明", "-" * 20, "\n", situation, "\n", "-" * 20)
+        if edit:
+            prompt = (
+                f"現在の画像から次の状況を表すアニメ風画像を生成してください:\n{situation}",
+            )
+            # image = Image.open(self.llmcfg.image.path)
+            image = self.image_data
+            self._generate_image(prompt, image)
+        else:
+            prompt = f"次の状況を表すアニメ風画像を生成してください:\n{situation}"
+            self._generate_image(prompt)
 
-    def _generate_image(self, prompt: str):
+    def _generate_image(self, prompt: str, image: Image.Image = None) -> bool:
         """Gemini APIを使用して画像を生成する関数"""
         response = self.client.models.generate_content(
             model=self.llmcfg.image.model,
-            contents=prompt,
+            contents=[prompt, image] if image else prompt,
             config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
         )
-        print("-" * 20, "画像生成結果", "-" * 20)
-        print(len(response.candidates))
-        print("-" * 20)
         for part in response.candidates[0].content.parts:
             if part.inline_data is not None:
                 image = Image.open(BytesIO((part.inline_data.data)))
-                image.save("gemini-image.png")
+                image.save(self.llmcfg.image.path)
+                self.image_data = image
                 image.show()
+                return True
+        print("画像生成に失敗しました。")
+        return False
