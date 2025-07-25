@@ -22,6 +22,7 @@ class LLMConfig:
         self.gemini = cfg.gemini
         self.image = cfg.image
         self.ollama = cfg.ollama
+        self.openrouter = cfg.openrouter
         self.model_engine = cfg.chat.model_engine
 
     def format(self, text: str) -> str:
@@ -32,4 +33,3 @@ def history_to_text(history):
     return (
         "[\n" + ",\n".join([json.dumps(h, ensure_ascii=False) for h in history]) + "\n]"
     )
-

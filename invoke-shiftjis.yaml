@@ -42,7 +42,7 @@ chat:
   image:
     edit: false
     interval: 10 # 画像生成頻度（使わない場合この値を大きくする）
-  model_engine: gemini # ここにLLMモデルのエンジンを指定します (gemini または ollama)
+  model_engine: gemini # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
 
 # LLM
 gemini:
@@ -51,6 +51,11 @@ gemini:
 
 ollama:
   model: gemma3 # gemma3, gemma3nなど
+  base_url: http://localhost:11434 # OllamaサーバーのURL
+
+openrouter:
+  model: deepseek/deepseek-chat-v3-0324:free # 使用するOpenRouterモデル名
+  base_url: https://openrouter.ai/api/v1 # OpenRouter APIのベースURL
 
 image:
   model: gemini-2.0-flash-preview-image-generation

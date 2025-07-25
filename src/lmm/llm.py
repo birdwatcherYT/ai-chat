@@ -3,7 +3,9 @@ from typing import Literal
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 import json
+import os  # 環境変数を読み込むために追加
 from .common import LLMConfig, history_to_text
 
 
@@ -15,6 +17,14 @@ class LLMs:
             self.llm = ChatOllama(**llmcfg.ollama)
         elif self.llmcfg.model_engine == "gemini":
             self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
+        elif self.llmcfg.model_engine == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            self.llm = ChatOpenAI(
+                model=llmcfg.openrouter.model,
+                openai_api_key=api_key,
+                openai_api_base=llmcfg.openrouter.base_url,
+            )
+
         self.speaker_prompt_template = self.get_speaker_prompt_template()
 
     def get_speaker_prompt_template(self) -> PromptTemplate:
@@ -91,4 +101,3 @@ class LLMs:
             },
         )
         return utter_prompt_template | self.llm
-
