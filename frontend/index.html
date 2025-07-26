@@ -13,6 +13,7 @@
         <div id="input-area">
             <input type="text" id="message-input" placeholder="メッセージを入力..." disabled>
             <button id="send-button" disabled>送信</button>
+            <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
         </div>
     </div>
 
@@ -20,16 +21,22 @@
         const chatBox = document.getElementById('chat-box');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
+        const micButton = document.getElementById('mic-button');
         const statusArea = document.getElementById('status-area');
 
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        let audioQueue = [], isPlaying = false, currentAiMessageElement = null, userName = "U";
-
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-        ws.onopen = () => { console.log("[SYSTEM] WebSocket connected."); enable_input(); };
-        ws.onclose = () => { console.error("[SYSTEM] WebSocket closed."); update_status("main", "サーバーとの接続が切れました。"); disable_input(); }
-        ws.onerror = (e) => { console.error("[SYSTEM] WebSocket error:", e); update_status("main", "エラーが発生しました。"); disable_input(); }
+        let audioQueue = [], isPlaying = false, currentAiMessageElement = null, userName = "U";
+        let mediaRecorder, audioChunks = [], stream, analyser, dataArray, silenceTimer, isSpeaking = false, animationFrameId;
+        let isContinuousMode = false;
+
+        const VAD_THRESHOLD = 0.02;
+        const SILENCE_DURATION_MS = 1500;
+
+        ws.onopen = () => { enable_input(); };
+        ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
+        ws.onerror = (e) => { update_status("main", "エラーが発生しました。"); disable_input(true); }
 
         ws.onmessage = (event) => {
             const message = JSON.parse(event.data);
@@ -38,8 +45,13 @@
             switch (message.type) {
                 case 'history': append_message(message.data.name, message.data.content); break;
                 // --- ここからが修正箇所 ---
+                case 'user_transcription':
+                    remove_status('audio-processing'); // 解析中ステータスを消す
+                    append_message(userName, message.data, true); // 認識結果を確定表示
+                    update_status('speaker-decision', '＞ 次の話者を決めています...'); // ここで話者決定中を表示
+                    break;
                 case 'next_speaker':
-                    remove_status('speaker-decision'); // 古いステータスを消す
+                    remove_status('speaker-decision');
                     update_status('ai_thinking', `＞ ${message.data}が発言を考えています...`);
                     if (message.data !== userName) currentAiMessageElement = append_message(message.data, '');
                     break;
@@ -52,89 +64,111 @@
                 case 'stream_end': finish_ai_turn(); break;
             }
         };
+        
+        const update_status = (id, text) => { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.className = 'status-item'; statusArea.appendChild(el); } el.textContent = text; };
+        const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
+        const clear_all_status = () => { statusArea.innerHTML = ''; };
 
-        const update_status = (id, text) => {
-            let statusEl = document.getElementById(id);
-            if (!statusEl) {
-                statusEl = document.createElement('div');
-                statusEl.id = id; statusEl.className = 'status-item';
-                statusArea.appendChild(statusEl);
-            }
-            statusEl.textContent = text;
+        const enable_input = (isManual = true) => {
+            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false;
+            if (!isContinuousMode || isManual) { update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); }
         };
-        const remove_status = (id) => {
-            const statusEl = document.getElementById(id);
-            if (statusEl) statusEl.remove();
-        };
-        const clear_all_status = () => {
-            statusArea.innerHTML = '';
-        };
-
-        const enable_input = () => {
-            messageInput.disabled = false; sendButton.disabled = false;
-            update_status("main-prompt", "メッセージを入力してください。");
-            console.log("[UI] Input enabled.");
-        };
-        const disable_input = () => {
+        const disable_input = (isError = false) => {
             messageInput.disabled = true; sendButton.disabled = true;
-            console.log("[UI] Input disabled.");
+            if (!isError) micButton.disabled = false;
         };
 
-        const append_message = (name, text) => {
-            const msgEl = document.createElement('div');
-            msgEl.classList.add('message', name === userName ? 'user-message' : 'ai-message');
-            msgEl.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`;
-            chatBox.appendChild(msgEl); chatBox.scrollTop = chatBox.scrollHeight; return msgEl;
-        };
-        const update_ai_message = (chunk) => {
-            if (currentAiMessageElement) {
-                currentAiMessageElement.querySelector('p').textContent += chunk;
-                chatBox.scrollTop = chatBox.scrollHeight;
-            }
-        };
-        const append_image = (url) => {
-            const imgEl = document.createElement('div');
-            imgEl.classList.add('message', 'image-message');
-            imgEl.innerHTML = `<img src="${url}" alt="Generated Image" onload="() => { chatBox.scrollTop = chatBox.scrollHeight; }">`;
-            chatBox.appendChild(imgEl); chatBox.scrollTop = chatBox.scrollHeight;
-        };
+        const append_message = (name, text, isFinal = false) => { if (isFinal) { remove_status('temp-user-message'); } const el = document.createElement('div'); el.classList.add('message', name === userName ? 'user-message' : 'ai-message'); el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; return el; };
+        const append_temp_message = (text) => { update_status('temp-user-message', text); };
+        const update_ai_message = (chunk) => { if (currentAiMessageElement) { currentAiMessageElement.querySelector('p').textContent += chunk; chatBox.scrollTop = chatBox.scrollHeight; } };
+        const append_image = (url) => { const el = document.createElement('div'); el.classList.add('message', 'image-message'); el.innerHTML = `<img src="${url}" alt="Generated Image" onload="() => { chatBox.scrollTop = chatBox.scrollHeight; }">`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; };
+        
         const finish_ai_turn = () => {
-            console.log("[SYSTEM] AI turn finished.");
             currentAiMessageElement = null;
             remove_status('ai_thinking');
-            enable_input();
-        };
-        const play_from_queue = () => {
-            if (isPlaying || audioQueue.length === 0) return;
-            isPlaying = true;
-            const { audio, samplerate, dtype } = audioQueue.shift();
-            const rawAudio = atob(audio);
-            const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer);
-            for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i);
-            
-            let float32Array;
-            if (dtype === 'int16') {
-                 const int16Array = new Int16Array(buffer); float32Array = new Float32Array(int16Array.length);
-                 for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768.0;
-            } else if (dtype === 'float32') { float32Array = new Float32Array(buffer);
-            } else { console.error("[AUDIO] Unsupported dtype:", dtype); isPlaying = false; play_from_queue(); return; }
-
-            const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate);
-            audioBuffer.copyToChannel(float32Array, 0);
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer; source.connect(audioContext.destination);
-            source.onended = () => { isPlaying = false; play_from_queue(); };
-            source.start();
-        };
-        const sendMessage = () => {
-            const message = messageInput.value;
-            if (message && !messageInput.disabled) {
-                ws.send(message); append_message(userName, message);
-                messageInput.value = ''; disable_input();
-                clear_all_status();
-                update_status('speaker-decision', '＞ 次の話者を決めています...');
+            if (isContinuousMode) {
+                startRecording();
+            } else {
+                enable_input();
             }
         };
+        
+        const play_from_queue = () => { if (isPlaying || audioQueue.length === 0) return; isPlaying = true; const { audio, samplerate, dtype } = audioQueue.shift(); const rawAudio = atob(audio); const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer); for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i); let float32Array; if (dtype === 'int16') { const i16 = new Int16Array(buffer); float32Array = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) float32Array[i] = i16[i] / 32768.0; } else if (dtype === 'float32') { float32Array = new Float32Array(buffer); } else { isPlaying = false; play_from_queue(); return; } const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate); audioBuffer.copyToChannel(float32Array, 0); const source = audioContext.createBufferSource(); source.buffer = audioBuffer; source.connect(audioContext.destination); source.onended = () => { isPlaying = false; play_from_queue(); }; source.start(); };
+        
+        const sendMessage = () => { const message = messageInput.value; if (message && !messageInput.disabled) { ws.send(message); append_message(userName, message); messageInput.value = ''; disable_input(); clear_all_status(); update_status('speaker-decision', '＞ 次の話者を決めています...'); } };
+        
+        const startVAD = () => {
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.5;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            source.connect(analyser);
+            detectSpeech();
+        };
+
+        const detectSpeech = () => {
+            if (!mediaRecorder || mediaRecorder.state !== "recording") { cancelAnimationFrame(animationFrameId); return; };
+            animationFrameId = requestAnimationFrame(detectSpeech);
+            analyser.getByteTimeDomainData(dataArray);
+            let sum = 0.0; for (const x of dataArray) { sum += Math.abs(x / 128.0 - 1.0); }
+            const avg = sum / dataArray.length;
+            if (avg > VAD_THRESHOLD) {
+                if (!isSpeaking) { isSpeaking = true; append_temp_message('...聞いています...'); }
+                clearTimeout(silenceTimer); silenceTimer = null;
+            } else if (isSpeaking) {
+                if (!silenceTimer) {
+                    silenceTimer = setTimeout(() => { stopRecording(); }, SILENCE_DURATION_MS);
+                }
+            }
+        };
+
+        const startRecording = async () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") return;
+            try {
+                if (audioContext.state === 'suspended') { await audioContext.resume(); }
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                isSpeaking = false; silenceTimer = null;
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                audioChunks = [];
+                mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    if (audioBlob.size > 1000) {
+                        ws.send(audioBlob);
+                        clear_all_status();
+                        // --- ここからが修正箇所 ---
+                        update_status('audio-processing', '🔊 音声解析中...');
+                        // --- ここまでが修正箇所 ---
+                    } else {
+                        if (!isContinuousMode) enable_input();
+                    }
+                    remove_status('temp-user-message');
+                };
+                mediaRecorder.start(); startVAD();
+                micButton.classList.add('recording');
+                micButton.textContent = "⏹️";
+                disable_input(); update_status('main-prompt', '🎤 話してください...');
+            } catch (err) { console.error("マイクアクセスエラー:", err); update_status('main-prompt', 'マイクへのアクセスが拒否されました。'); enable_input(); }
+        };
+
+        const stopRecording = () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); }
+            if (stream) { stream.getTracks().forEach(track => track.stop()); }
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); }
+            micButton.classList.remove('recording');
+            micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
+        };
+        
+        micButton.onclick = () => {
+            isContinuousMode = !isContinuousMode;
+            micButton.classList.toggle('continuous-mode', isContinuousMode);
+            if (isContinuousMode) {
+                startRecording();
+            } else {
+                stopRecording();
+                enable_input();
+            }
+        };
+
         sendButton.onclick = sendMessage;
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage() });
     </script>

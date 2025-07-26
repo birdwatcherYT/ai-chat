@@ -87,3 +87,45 @@ body {
     border-radius: 10px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
+
+/* ... 既存のスタイル ... */
+#mic-button {
+    border: none;
+    background-color: #6c757d;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    margin-left: 10px;
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    transition: background-color 0.2s;
+}
+
+#mic-button:hover {
+    background-color: #5a6268;
+}
+
+#mic-button.recording {
+    background-color: #dc3545;
+    animation: pulse 1.5s infinite;
+}
+
+
+#mic-button.continuous-mode {
+    background-color: #28a745; /* 常時モード中は緑色に */
+    box-shadow: 0 0 8px rgba(40, 167, 69, 0.7); /* 光っているようなエフェクト */
+}
+
+#mic-button.continuous-mode.recording {
+    background-color: #dc3545; /* 録音中は赤を優先 */
+    box-shadow: none; /* 録音中はパルスアニメーションに専念 */
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}

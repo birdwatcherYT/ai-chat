@@ -16,6 +16,7 @@ dependencies = [
     "langchain-ollama>=0.3.6",
     "langchain-openai>=0.3.28",
     "pillow>=11.3.0",
+    "pydub>=0.25.1",
     "python-dotenv>=1.1.1",
     "python-socketio>=5.13.0",
     "requests>=2.32.3",
