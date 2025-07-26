@@ -67,6 +67,10 @@ def task_tts_list(args):
         from src.tts.coeiroink import CoeiroInk
 
         CoeiroInk().print_speakers()
+    elif engine == "aivisspeech":
+        from src.tts.aivisspeech import AivisSpeech
+
+        AivisSpeech().print_speakers()
     else:
         logger.error(f"❌ [エラー] 未知のTTSエンジン: {engine}")
         sys.exit(1)
