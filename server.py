@@ -1,4 +1,3 @@
-
 import asyncio
 import base64
 import os
@@ -133,7 +132,6 @@ async def run_ai_turn(turn: str, history_len_before_user_turn: int):
     if results[0]: history.append(results[0])
     await manager.send_json({"type": "stream_end"})
 
-# --- ここからが修正箇所 ---
 async def process_user_audio(audio_bytes: bytes) -> str:
     """webmオーディオバイトをデコードし、ASRで文字起こしする"""
     if not asr_engine:
@@ -179,10 +177,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message = message["text"]
             elif "bytes" in message:
                 user_message = await process_user_audio(message["bytes"])
-                if user_message: # 文字起こしが成功した場合のみ送信
-                    await manager.send_json({"type": "user_transcription", "data": user_message})
+                # --- START: BUG FIX ---
+                # 文字起こし結果をクライアントに通知 (結果が空でも送る)
+                await manager.send_json({"type": "user_transcription", "data": user_message})
+                # --- END: BUG FIX ---
 
-            if not user_message: continue
+            if not user_message:
+                continue # テキストが空、または文字起こし結果が空なら次のループへ
             
             history_len_before_user_turn, user_name = len(history), llmcfg.user_name
             history.append({"name": user_name, "content": user_message})
@@ -192,7 +193,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect: pass
     except Exception as e: print(f"❌ [SYSTEM] WebSocketループエラー: {e}"); traceback.print_exc()
     finally: manager.disconnect(websocket)
-# --- ここまでが修正箇所 ---
 
 app.mount(GENERATED_IMAGES_URL_PATH, StaticFiles(directory=GENERATED_IMAGES_DIR), name="images")
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
