@@ -1,6 +1,8 @@
+import json
+
 import sounddevice as sd
 import vosk
-import json
+
 from .base import SpeechToText
 
 

@@ -1,11 +1,13 @@
-from pydantic import BaseModel
+import json
+import os
 from typing import Literal
+
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
-import json
-import os  # 環境変数を読み込むために追加
+from pydantic import BaseModel
+
 from .common import LLMConfig, history_to_text
 
 
@@ -55,8 +57,10 @@ class LLMs:
         return prompt
 
     def get_next_speaker(
-        self, history: list[dict[str, str]], except_names: list[str] = []
+        self, history: list[dict[str, str]], except_names: list[str] = None
     ) -> str:
+        if except_names is None:
+            except_names = []
         candidates = [c for c in self.llmcfg.char_names if c not in except_names]
         # Pydanticモデル定義: candidatesから動的にLiteral型スキーマを生成
         SpeakerSchema = type(

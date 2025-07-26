@@ -1,5 +1,6 @@
 import numpy as np
 from faster_whisper import WhisperModel
+
 from .vad_based_asr import VadBasedASR
 
 
@@ -32,10 +33,7 @@ class WhisperASR(VadBasedASR):
     def process_audio(self, audio_bytes: bytes) -> str:
         """音声データを処理して文字列を返す"""
         # 音声データをfloat32のNumPyアレイに変換
-        audio = (
-            np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
-            / 32768.0
-        )
+        audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         # Whisperで音声を認識
         segments, _ = self.model.transcribe(
             audio, language="ja", vad_filter=self.vad_filter

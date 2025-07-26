@@ -3,7 +3,7 @@ chat:
     name: U # 呼ばれたい名前に変える
     character: | # あなたのプロフィール
       - 男
-    input: whisper # text, vosk, whisper, gemini, ai
+    input: text # text, vosk, whisper, gemini, ai
     voice: # aiモードのときのみ使う
       engine: null # null, voicevox, coeiroink, aivisspeech
       # config:
@@ -59,7 +59,6 @@ openrouter:
 
 image:
   model: gemini-2.0-flash-preview-image-generation
-  path: ./gemini-image.png
   mock: true
 
 vosk: # 音声認識のモデルへのパス

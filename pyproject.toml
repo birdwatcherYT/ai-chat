@@ -27,3 +27,31 @@ dependencies = [
     "vosk>=0.3.45",
     "webrtcvad>=2.0.10",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.5",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",  # ほぼ必須
+    "I",            # importのソート
+    "UP",           # 古い記法のアップグレード
+    "C90",          # 複雑度チェック (しきい値は調整)
+    "B",            # バグの可能性を指摘
+    "A",            # ビルトインのシャドウイング
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "C901",  # too complex (for business logic)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

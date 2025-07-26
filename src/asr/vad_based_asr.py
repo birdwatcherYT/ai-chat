@@ -1,9 +1,11 @@
+import os
+import tempfile
+import wave
+from collections import deque
+
 import sounddevice as sd
 import webrtcvad
-import wave
-import tempfile
-import os
-from collections import deque
+
 from .base import SpeechToText
 
 

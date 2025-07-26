@@ -1,9 +1,9 @@
-import io
-import aiohttp
 import asyncio
-import requests
-import soundfile as sf
+
+import aiohttp
 import numpy as np
+import requests
+
 from .base import TextToSpeech
 
 # SEE http://localhost:50021/docs

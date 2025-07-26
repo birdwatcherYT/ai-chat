@@ -1,19 +1,18 @@
 import os
 import time
-from dotenv import load_dotenv
-from PIL import Image
 from io import BytesIO
-
-load_dotenv()
 
 from google import genai
 from google.genai import types
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.output_parsers import StrOutputParser
+from PIL import Image
 
-from .common import history_to_text
-from .common import LLMConfig
+from ..logger import get_logger
+from .common import LLMConfig, history_to_text
+
+logger = get_logger(__name__, level="INFO")
 
 
 class ImageGenerator:
@@ -53,7 +52,7 @@ class ImageGenerator:
         self, prompt: str, image: Image.Image = None
     ) -> tuple[str, str] | None:
         """画像を生成し、(URL, ローカルパス) のタプルを返す"""
-        print(f"🎨 [IMAGE] 画像生成プロンプト: {prompt[:100]}...")
+        logger.debug(f"🎨 [IMAGE] 画像生成プロンプト: {prompt[:100]}...")
         try:
             if self.client is None:
                 raise ValueError("Client is not initialized in mock mode.")
@@ -73,19 +72,18 @@ class ImageGenerator:
                     save_path = os.path.join(self.save_dir, filename)
                     image_url = f"{self.url_path}/{filename}"
                     new_image.save(save_path)
-                    print(f"🖼️ [IMAGE] 画像を保存しました: {save_path}")
+                    logger.debug(f"🖼️ [IMAGE] 画像を保存しました: {save_path}")
                     return image_url, save_path
         except Exception as e:
-            print(f"❌ [IMAGE] 画像生成に失敗しました: {e}")
+            logger.error(f"❌ [IMAGE] 画像生成に失敗しました: {e}")
         return None, None
 
-    # --- START: MODIFICATION ---
     def generate_image(
         self, history: list[dict[str, str]], edit: bool = False
     ) -> tuple[str, str] | None:
         """状況を判断し、画像を生成して(URL, ローカルパス)のタプルを返す"""
         if self.llmcfg.image.mock:
-            print("🖼️ [MOCK-IMAGE] Returning a local mock image.")
+            logger.debug("🖼️ [MOCK-IMAGE] Returning a local mock image.")
             time.sleep(3)  # リアルな待機時間をシミュレート
             mock_filename = "mock.png"
             image_path = os.path.join(self.save_dir, mock_filename)
@@ -93,14 +91,14 @@ class ImageGenerator:
 
             # ユーザーへの案内メッセージ
             if not os.path.exists(image_path):
-                print(
+                logger.warning(
                     f"⚠️  [MOCK-IMAGE] Mock image file not found. Please place a file named '{mock_filename}' in the '{self.save_dir}' directory."
                 )
 
             return image_url, image_path
 
         situation = self.situation_chain.invoke({"messages": history_to_text(history)})
-        print("-" * 20, "状況説明", "-" * 20, "\n", situation, "\n", "-" * 20)
+        logger.debug("-" * 20, "状況説明", "-" * 20, "\n", situation, "\n", "-" * 20)
 
         if edit and self.last_image:
             prompt = f"現在の画像から次の状況を表すアニメ風画像を生成してください:\n{situation}"
@@ -109,4 +107,3 @@ class ImageGenerator:
             prompt = f"次の状況を表すアニメ風画像を生成してください:\n{situation}"
             return self._generate_image(prompt)
         # --- END: MODIFICATION ---
-

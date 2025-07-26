@@ -1,7 +1,8 @@
 import io
-import soundfile as sf
-import numpy as np
 from abc import ABC, abstractmethod
+
+import numpy as np
+import soundfile as sf
 
 
 class TextToSpeech(ABC):
