@@ -69,13 +69,21 @@
                     console.log(`GUI Input mode set to: ${userInputMode}`);
                     break;
                 case 'user_transcription':
+                    // サーバーでの認識中ステータスを削除
+                    remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
                         append_message(userName, message.data);
                         update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                        // この後AIのターンが始まるので、UIは無効のままでOK
                     } else {
                         update_status('asr-failed', '音声を認識できませんでした。', 2000);
-                        if (isContinuousMode) { setTimeout(startRecording, 100); } else { enable_input(); }
+                        // AIのターンに進まないので、UIの入力を再度有効化する
+                        if (isContinuousMode) {
+                            setTimeout(startRecording, 100);
+                        } else {
+                            enable_input();
+                        }
                     }
                     break;
                 case 'history': append_message(message.data.name, message.data.content); break;
@@ -173,7 +181,7 @@
         const update_status = (id, text, timeout = 0) => { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.className = 'status-item'; statusArea.appendChild(el); } el.textContent = text; if (timeout > 0) { setTimeout(() => { if (el) el.remove(); }, timeout); } };
         const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
         const enable_input = (isManual = true) => { messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); } };
-        const disable_input = (isError = false) => { messageInput.disabled = true; sendButton.disabled = true; if (!isError) micButton.disabled = false; remove_status("main-prompt"); };
+        const disable_input = (isError = false) => { messageInput.disabled = true; sendButton.disabled = true; micButton.disabled = true; remove_status("main-prompt"); };
 
 
         const append_message = (name, text) => { const el = document.createElement('div'); el.classList.add('message', name === userName ? 'user-message' : 'ai-message'); el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; return el; };
@@ -205,14 +213,26 @@
             remove_status('ai_thinking');
             aiTurnFinished = true;
             if (!isPlaying) {
-                if (isContinuousMode) { startRecording(); } else { enable_input(); }
+                if (isContinuousMode) {
+                    // ★修正点: 先にUIを有効化してから、録音を開始する
+                    enable_input(false); // falseを渡し不要なプロンプト表示を抑制
+                    startRecording();
+                } else {
+                    enable_input(true);
+                }
             }
         };
         const play_from_queue = () => {
             if (audioQueue.length === 0) {
                 isPlaying = false;
                 if (aiTurnFinished) {
-                    if (isContinuousMode) { startRecording(); } else { enable_input(); }
+                    if (isContinuousMode) {
+                        // ★修正点: こちらも同様に、先にUIを有効化する
+                        enable_input(false); // falseを渡し不要なプロンプト表示を抑制
+                        startRecording();
+                    } else {
+                        enable_input(true);
+                    }
                 }
                 return;
             }
@@ -232,7 +252,11 @@
         const sendMessage = () => { const message = messageInput.value; if (message && !messageInput.disabled) { ws.send(JSON.stringify({ text: message })); append_message(userName, message); messageInput.value = ''; disable_input(); update_status('speaker-decision', '➡️ 次の話者を決めています...'); } };
         const startRecording = async () => {
             if (micButton.classList.contains('recording')) return;
-            disable_input();
+            // disable_input();
+            // マイクボタンは無効化せず、他の入力のみを無効化する
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+
             micButton.classList.add('recording');
             micButton.textContent = "⏹️";
             update_status('main-prompt', '🎤 話してください...');
@@ -259,9 +283,22 @@
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     audioChunks = [];
                     mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+                    // mediaRecorderのonstopイベントハンドラ内
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        if (audioBlob.size > 1000) { ws.send(audioBlob); } else { remove_temp_user_message(); if (isContinuousMode) { startRecording(); } else { enable_input(); } }
+                        if (audioBlob.size > 1000) {
+                            ws.send(audioBlob);
+                            // 音声送信直後にUIを無効化し、ユーザーに状態をフィードバックする
+                            disable_input();
+                            update_status('asr-server', 'サーバーで音声を認識中...');
+                        } else {
+                            remove_temp_user_message();
+                            if (isContinuousMode) {
+                                startRecording();
+                            } else {
+                                enable_input();
+                            }
+                        }
                     };
                     mediaRecorder.start();
                     startVAD();
