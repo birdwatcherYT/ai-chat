@@ -13,9 +13,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
-from src.asr.gemini_asr import GeminiASR
-from src.asr.vosk_asr import VoskASR
-from src.asr.whisper_asr import WhisperASR
 from src.lmm.common import LLMConfig, history_to_text
 from src.lmm.img import ImageGenerator
 from src.lmm.llm import LLMs
@@ -64,13 +61,16 @@ def load_config_and_init():
         ]
         user_input_mode = cfg.chat.user.input
         if user_input_mode == "vosk":
-            # SimpleNamespaceをvars()で辞書に変換してから展開
+            from src.asr.vosk_asr import VoskASR
+
             asr_engine = VoskASR(**vars(cfg.vosk))
         elif user_input_mode == "whisper":
-            # SimpleNamespaceをvars()で辞書に変換してから展開
+            from src.asr.whisper_asr import WhisperASR
+
             asr_engine = WhisperASR(**vars(cfg.whisper), **vars(cfg.webrtcvad))
         elif user_input_mode == "gemini":
-            # SimpleNamespaceをvars()で辞書に変換してから展開
+            from src.asr.gemini_asr import GeminiASR
+
             asr_engine = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
         else:
             asr_engine = None
@@ -237,14 +237,9 @@ async def process_user_audio(audio_bytes: bytes) -> str:
         pcm_audio_bytes = audio_segment.raw_data
         logger.info(f"🎤 [DECODE] 音声デコード成功: {len(pcm_audio_bytes)} bytes")
 
-        if isinstance(asr_engine, WhisperASR):
-            user_message = await asyncio.to_thread(
-                asr_engine.process_audio, pcm_audio_bytes
-            )
-        else:
-            user_message = await asyncio.to_thread(
-                asr_engine.process_audio, pcm_audio_bytes
-            )
+        user_message = await asyncio.to_thread(
+            asr_engine.process_audio, pcm_audio_bytes
+        )
         return user_message
     except Exception as e:
         logger.error(f"❌ [ASR] 音声処理中にエラー: {e}")
