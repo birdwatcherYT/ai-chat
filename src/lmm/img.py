@@ -15,6 +15,7 @@ from langchain_core.output_parsers import StrOutputParser
 from .common import history_to_text
 from .common import LLMConfig
 
+
 class ImageGenerator:
     def __init__(self, llmcfg: LLMConfig, save_dir: str, url_path: str):
         self.llmcfg = llmcfg
@@ -48,17 +49,21 @@ class ImageGenerator:
         )
         return prompt | self.llm | StrOutputParser()
 
-    def _generate_image(self, prompt: str, image: Image.Image = None) -> str | None:
+    def _generate_image(
+        self, prompt: str, image: Image.Image = None
+    ) -> tuple[str, str] | None:
+        """画像を生成し、(URL, ローカルパス) のタプルを返す"""
         print(f"🎨 [IMAGE] 画像生成プロンプト: {prompt[:100]}...")
         try:
-            # clientがNoneの場合はAPIを呼ばない
             if self.client is None:
                 raise ValueError("Client is not initialized in mock mode.")
 
             response = self.client.models.generate_content(
                 model=self.llmcfg.image.model,
                 contents=[prompt, image] if image else prompt,
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT", "IMAGE"]
+                ),
             )
             for part in response.candidates[0].content.parts:
                 if part.inline_data is not None:
@@ -69,25 +74,39 @@ class ImageGenerator:
                     image_url = f"{self.url_path}/{filename}"
                     new_image.save(save_path)
                     print(f"🖼️ [IMAGE] 画像を保存しました: {save_path}")
-                    return image_url
+                    return image_url, save_path
         except Exception as e:
             print(f"❌ [IMAGE] 画像生成に失敗しました: {e}")
-        return None
+        return None, None
 
-    def generate_image(self, history: list[dict[str, str]], edit: bool = False) -> str | None:
-        """状況を判断し、画像を生成してURLを返す。モックモードを考慮。"""
+    # --- START: MODIFICATION ---
+    def generate_image(
+        self, history: list[dict[str, str]], edit: bool = False
+    ) -> tuple[str, str] | None:
+        """状況を判断し、画像を生成して(URL, ローカルパス)のタプルを返す"""
         if self.llmcfg.image.mock:
-            print("🖼️ [MOCK-IMAGE] Mocking image generation.")
-            time.sleep(3) # リアルな待機時間をシミュレート
-            # placehold.jp は日本語も使える
-            return "https://placehold.jp/3d4070/ffffff/512x512.png?text=モック画像"
+            print("🖼️ [MOCK-IMAGE] Returning a local mock image.")
+            time.sleep(3)  # リアルな待機時間をシミュレート
+            mock_filename = "mock.png"
+            image_path = os.path.join(self.save_dir, mock_filename)
+            image_url = f"{self.url_path}/{mock_filename}"
+
+            # ユーザーへの案内メッセージ
+            if not os.path.exists(image_path):
+                print(
+                    f"⚠️  [MOCK-IMAGE] Mock image file not found. Please place a file named '{mock_filename}' in the '{self.save_dir}' directory."
+                )
+
+            return image_url, image_path
 
         situation = self.situation_chain.invoke({"messages": history_to_text(history)})
         print("-" * 20, "状況説明", "-" * 20, "\n", situation, "\n", "-" * 20)
-        
+
         if edit and self.last_image:
             prompt = f"現在の画像から次の状況を表すアニメ風画像を生成してください:\n{situation}"
             return self._generate_image(prompt, self.last_image)
         else:
             prompt = f"次の状況を表すアニメ風画像を生成してください:\n{situation}"
             return self._generate_image(prompt)
+        # --- END: MODIFICATION ---
+

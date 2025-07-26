@@ -42,7 +42,7 @@ chat:
   image:
     edit: false
     interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
-  model_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
+  model_engine: gemini # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
 
 # LLM
 gemini:

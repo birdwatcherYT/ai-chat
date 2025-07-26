@@ -1,174 +1,197 @@
 from dotenv import load_dotenv
 
-load_dotenv()  # .envファイルから環境変数を読み込む
+load_dotenv()
 
 import asyncio
 import sounddevice as sd
 from invoke.config import Config
+import platform
+import subprocess
+import os
+import datetime
+from typing import Coroutine, Any
+from concurrent.futures import ThreadPoolExecutor
+import random
 
 from src.tts.base import TextToSpeech
 from src.asr.base import SpeechToText
 from src.tts.voicevox import VoiceVox
 from src.tts.coeiroink import CoeiroInk
 from src.tts.aivisspeech import AivisSpeech
-
 from src.lmm.common import LLMConfig, history_to_text
 from src.lmm.llm import LLMs
 from src.lmm.img import ImageGenerator
 
+# --- HELPERS (変更なし) ---
+def log_task(name: str, event: str, details: str = ""):
+    timestamp = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+    details_str = f"| Details: {details}" if details else ""
+    print(f"\n>>>> LOG [{timestamp}] | Task: {name:<20} | Event: {event:<15} {details_str}")
 
-async def playback_worker(queue: asyncio.Queue, asr: SpeechToText):
-    """再生キューから順次オーディオデータを取り出して再生するワーカー"""
+def open_image(image_path: str):
+    log_task("OPEN_IMAGE", "START", image_path)
+    system = platform.system()
+    if not os.path.exists(image_path): print(f"⚠️ [SYSTEM] 画像ファイルが見つかりません: {image_path}"); return
+    try:
+        if system == "Windows": subprocess.run(["start", "", image_path], check=True, shell=True)
+        elif system == "Darwin": subprocess.run(["open", image_path], check=True)
+        else: subprocess.run(["xdg-open", image_path], check=True)
+    except Exception as e: print(f"❌ [SYSTEM] 画像を開けませんでした: {e}")
+    log_task("OPEN_IMAGE", "END", image_path)
+
+# --- ASYNC WORKERS (一部修正) ---
+async def playback_worker(queue: asyncio.Queue):
     while True:
         data, sr = await queue.get()
-        if asr is not None:
-            asr.pause()  # マイクをOFFにする
+        log_task("PLAYBACK_WORKER", "START")
+        # sd.playは非ブロッキングなのでto_threadは不要
         sd.play(data, sr)
+        # sd.waitはブロッキングなのでto_threadが必要
         await asyncio.to_thread(sd.wait)
-        if asr is not None:
-            asr.resume()  # 再生終了後にマイクをONにする
+        log_task("PLAYBACK_WORKER", "END")
         queue.task_done()
 
-
 async def synthesis_worker(
-    synthesis_queue: asyncio.Queue,
-    playback_queue: asyncio.Queue,
-    engines: dict[str, TextToSpeech],
-    ai_config: dict[str, Config],
+    synthesis_queue: asyncio.Queue, playback_queue: asyncio.Queue,
+    engines: dict[str, TextToSpeech], ai_config: dict[str, Config]
 ):
-    """合成キューから順次テキストを取り出して音声合成し、再生キューに投入するワーカー"""
     while True:
         name, text_segment = await synthesis_queue.get()
-        cfg = ai_config[name]
-        if cfg["engine"] is not None:
-            tts = engines[cfg["engine"]]
-            data, sr = await tts.synthesize_async(text_segment, **cfg["config"])
-            await playback_queue.put((data, sr))
+        log_task("SYNTHESIS_WORKER", "START", f"'{text_segment[:15]}...'")
+        cfg = ai_config.get(name)
+        if cfg and cfg.get("engine"):
+            try:
+                data, sr = await engines[cfg["engine"]].synthesize_async(text_segment, **cfg["config"])
+                if data is not None: await playback_queue.put((data, sr))
+            except Exception as e: print(f"❌ [SYNTH] 音声合成エラー: {e}")
+        log_task("SYNTHESIS_WORKER", "END", f"'{text_segment[:15]}...'")
         synthesis_queue.task_done()
+
+# --- LLM STREAM TASK (変更なし) ---
+def llm_stream_task(
+    loop: asyncio.AbstractEventLoop, synthesis_queue: asyncio.Queue,
+    utter_chain: Coroutine, utter_prompt_vars: dict,
+    turn: str, streaming_chars: list[str]
+) -> str:
+    log_task("LLM_STREAM", "THREAD_START")
+    full_response, answer_segment = "", ""
+    try:
+        for chunk in utter_chain.stream(utter_prompt_vars):
+            content = chunk.content; print(content, end="", flush=True)
+            full_response += content; answer_segment += content
+            if answer_segment and answer_segment[-1] in streaming_chars:
+                log_task("LLM_STREAM", "QUEUE_PUT", f"'{answer_segment[:15]}...'")
+                asyncio.run_coroutine_threadsafe(synthesis_queue.put((turn, answer_segment)), loop); answer_segment = ""
+        if answer_segment:
+            log_task("LLM_STREAM", "QUEUE_PUT", f"'{answer_segment[:15]}...'")
+            asyncio.run_coroutine_threadsafe(synthesis_queue.put((turn, answer_segment)), loop)
+        log_task("LLM_STREAM", "THREAD_END")
+        return full_response
+    except Exception as e:
+        print(f"\n❌ [LLM-THREAD] テキスト生成中にエラーが発生しました: {e}"); return ""
+
+# --- ARCHITECTURE (変更なし) ---
+class ChatState:
+    def __init__(self, cfg: Config, llmcfg: LLMConfig, llms: LLMs, asr: SpeechToText | None, image_generator: ImageGenerator):
+        self.cfg = cfg
+        self.llmcfg = llmcfg
+        self.llms = llms
+        self.asr = asr
+        self.image_generator = image_generator
+        self.history = [{"name": llmcfg.format(item["name"]), "content": llmcfg.format(item["content"])} for item in cfg.chat.initial_message]
+        self.turn = llmcfg.format(cfg.chat.initial_turn)
+        self.loop = asyncio.get_running_loop()
+        self.synthesis_queue = asyncio.Queue()
+
+async def chat_loop(state: ChatState):
+    log_task("CHAT_LOOP", "TURN_START", f"Speaker: {state.turn}")
+    print(f"\n[{state.turn}] > ", end="", flush=True)
+
+    current_message = ""
+    if state.turn == state.llmcfg.user_name and state.cfg.chat.user.input != "ai":
+        if state.asr: user_input = await asyncio.to_thread(state.asr.audio_input)
+        else: user_input = await asyncio.to_thread(input)
+        print(user_input, flush=True)
+        current_message = user_input
+    else:
+        utter_chain = state.llms.get_utter_chain()
+        utter_prompt_vars = {"speaker": state.turn, "messages": history_to_text(state.history)}
+        log_task("CHAT_LOOP", "LLM_TASK_START")
+        full_response = await asyncio.to_thread(
+            llm_stream_task, state.loop, state.synthesis_queue,
+            utter_chain, utter_prompt_vars, state.turn, state.cfg.chat.streaming_voice_output
+        )
+        print()
+        log_task("CHAT_LOOP", "LLM_TASK_END")
+        current_message = full_response
+    
+    if current_message:
+        state.history.append({"name": state.turn, "content": current_message})
+        if len(state.history) % state.cfg.chat.image.interval == 0:
+            asyncio.create_task(generate_and_open_image(state.image_generator, list(state.history), state.cfg.chat.image.edit))
+        
+        log_task("NEXT_TURN_TASK", "CREATE")
+        except_names = [state.turn]
+        try:
+            next_speaker = await asyncio.to_thread(state.llms.get_next_speaker, list(state.history), except_names)
+            log_task("NEXT_TURN_TASK", "RESOLVED", f"New speaker: {next_speaker}")
+            state.turn = next_speaker
+        except Exception as e:
+            log_task("NEXT_TURN_TASK", "ERROR", str(e))
+            ai_names = list(state.llmcfg.ai_names.values())
+            state.turn = random.choice(ai_names) if ai_names else state.llmcfg.user_name
+    
+    asyncio.create_task(chat_loop(state))
+
+async def generate_and_open_image(
+    image_generator: ImageGenerator, history: list[dict[str, str]], edit: bool
+):
+    log_task("IMAGE_GENERATION", "TASK_STARTED")
+    image_url, image_path = await asyncio.to_thread(image_generator.generate_image, history, edit)
+    if image_path: await asyncio.to_thread(open_image, image_path)
+    log_task("IMAGE_GENERATION", "TASK_FINISHED")
+    print(f"\n> ", end="", flush=True)
 
 
 async def chat_start(cfg: Config):
+    """非同期タスクをセットアップし、チャットループを開始する"""
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=os.cpu_count() * 5 or 32)
+    loop.set_default_executor(executor)
+
     llmcfg = LLMConfig(cfg)
-
-    user_name = cfg.chat.user.name
-    # LLMの設定
     llms = LLMs(llmcfg)
-    utter_chain = llms.get_utter_chain()
-    # 画像生成の設定
-    image_generator = ImageGenerator(llmcfg)
+    image_generator = ImageGenerator(llmcfg, "generated_images", "/images")
+    asr: SpeechToText | None = None
+    user_input_mode = cfg.chat.user.input
+    log_task("MAIN", "INIT", f"User input mode: {user_input_mode}")
+    if user_input_mode == "vosk": from src.asr.vosk_asr import VoskASR; asr = VoskASR(**cfg.vosk)
+    elif user_input_mode == "whisper": from src.asr.whisper_asr import WhisperASR; asr = WhisperASR(**cfg.whisper, **cfg.webrtcvad)
+    elif user_input_mode == "gemini": from src.asr.gemini_asr import GeminiASR; asr = GeminiASR(cfg.gemini.model, **cfg.webrtcvad)
+    
+    state = ChatState(cfg, llmcfg, llms, asr, image_generator)
 
-    # 音声認識の設定
-    asr: SpeechToText = None
-    if cfg.chat.user.input == "vosk":
-        from .asr.vosk_asr import VoskASR
-
-        asr = VoskASR(**cfg.vosk)
-    elif cfg.chat.user.input == "whisper":
-        from .asr.whisper_asr import WhisperASR
-
-        asr = WhisperASR(**cfg.whisper, **cfg.webrtcvad)
-    elif cfg.chat.user.input == "gemini":
-        from .asr.gemini_asr import GeminiASR
-
-        asr = GeminiASR(cfg.config.gemini.model, **cfg.webrtcvad)
-
-    # 音声合成の設定
-    engines = {
-        "voicevox": VoiceVox(),
-        "coeiroink": CoeiroInk(),
-        "aivisspeech": AivisSpeech(),
-    }
+    engines = {"voicevox": VoiceVox(), "coeiroink": CoeiroInk(), "aivisspeech": AivisSpeech()}
     ai_config = {ai["name"]: ai["voice"] for ai in cfg.chat.ai}
-    if cfg.chat.user.input == "ai":
-        ai_config[user_name] = cfg.chat.user.voice
-
-    # 再生・合成用のグローバルなキューとワーカーを起動
+    if cfg.chat.user.input == "ai": ai_config[llmcfg.user_name] = cfg.chat.user.voice
     playback_queue = asyncio.Queue()
-    synthesis_queue = asyncio.Queue()
-    asyncio.create_task(playback_worker(playback_queue, asr))
-    asyncio.create_task(
-        synthesis_worker(synthesis_queue, playback_queue, engines, ai_config)
-    )
+    state.synthesis_queue = asyncio.Queue()
+    asyncio.create_task(playback_worker(playback_queue))
+    asyncio.create_task(synthesis_worker(state.synthesis_queue, playback_queue, engines, ai_config))
+    
+    print("="*20, "チャットを開始します", "="*20)
 
-    print(f"Chat Start: user.input={cfg.chat.user.input}", flush=True)
-
-    # 発話履歴をリストで管理
-    history = [
-        {"name": llmcfg.format(item["name"]), "content": llmcfg.format(item["content"])}
-        for item in cfg.chat.initial_message
-    ]
-
-    turn = llmcfg.format(cfg.chat.initial_turn)
-    # チャット全体をループで実行
-    while True:
-        print(f"{turn}: ", end="", flush=True)
-        if turn == user_name and cfg.chat.user.input != "ai":
-            # ユーザー入力取得（音声入力の場合は asr.audio_input、テキストの場合は input()）
-            if cfg.chat.user.input == "text":
-                user_input = await asyncio.to_thread(input)
-            else:
-                user_input = await asyncio.to_thread(asr.audio_input)
-                print(user_input, flush=True)
-
-            history.append({"name": user_name, "content": user_input})
-        else:
-            # AIのターンの場合は LLM からの応答を生成
-            text_queue = asyncio.Queue()
-
-            async def process_text_queue():
-                nonlocal turn
-                answer = ""
-                full_answer = ""
-
-                while True:
-                    chunk = await text_queue.get()
-                    if chunk is None:
-                        break  # ストリーム終了の合図
-                    # 生成されたチャンクを即座に表示
-                    print(chunk.content, end="", flush=True)
-                    answer += chunk.content
-                    # 指定された文字が現れたタイミングで音声合成
-                    if answer and answer[-1] in cfg.chat.streaming_voice_output:
-                        await synthesis_queue.put((turn, answer))
-                        full_answer += answer
-                        answer = ""
-                    text_queue.task_done()
-
-                answer = answer.strip()
-                if answer:
-                    await synthesis_queue.put((turn, answer))
-                    full_answer += answer
-                    answer = ""
-
-                # 上記でメッセージ追記後の改行
-                print()
-                history.append({"name": turn, "content": full_answer})
-
-            # テキスト処理タスクを開始
-            processing_task = asyncio.create_task(process_text_queue())
-
-            loop = asyncio.get_running_loop()
-            # 実行時にのみ必要な変数を渡す
-            utter_prompt_vars = {"speaker": turn, "messages": history_to_text(history)}
-
-            def generate_text():
-                for chunk in utter_chain.stream(utter_prompt_vars):
-                    asyncio.run_coroutine_threadsafe(text_queue.put(chunk), loop)
-                # ストリーム終了の合図として None を投入
-                asyncio.run_coroutine_threadsafe(text_queue.put(None), loop)
-
-            await asyncio.to_thread(generate_text)
-            # テキスト処理タスクが完了するのを待つ
-            await processing_task
-
-        if len(history) % cfg.chat.image.interval == 0:
-            # 指定間隔ごとに画像生成を非同期で行う
-            print("Generating image in background...")
-            asyncio.create_task(
-                asyncio.to_thread(
-                    image_generator.generate_image, history, cfg.chat.image.edit
-                )
-            )
-
-        # ターン決定
-        turn = llms.get_next_speaker(history, except_names=[turn])
+    # --- START: MODIFICATION (ループ終了バグ修正) ---
+    # 最初のチャットループタスクを開始
+    asyncio.create_task(chat_loop(state))
+    
+    # プログラムが終了しないように、無限に待機する
+    # Ctrl+Cで終了させる
+    log_task("MAIN", "RUNNING")
+    try:
+        # asyncio.Event().wait() を使って、Ctrl+C を待つ
+        await asyncio.Event().wait()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        log_task("MAIN", "SHUTDOWN")
+        print("\nチャットを終了します。")
+    # --- END: MODIFICATION ---

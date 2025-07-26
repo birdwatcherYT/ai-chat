@@ -1,3 +1,4 @@
+
 import asyncio
 import base64
 import os
@@ -6,7 +7,7 @@ import traceback
 import yaml
 import tempfile
 from io import BytesIO
-from pydub import AudioSegment # pydubをインポート
+from pydub import AudioSegment
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -109,7 +110,8 @@ async def audio_sender_consumer():
 async def image_generation_task(current_history):
     task_id = "image_gen"
     await manager.send_json({"type": "status_update", "data": {"id": task_id, "text": "🎨 画像を生成しています..."}})
-    image_url = await asyncio.to_thread(image_generator.generate_image, current_history, cfg.chat.image.edit)
+    # generate_imageは(URL, パス)のタプルを返すので、URLのみ受け取る
+    image_url, _ = await asyncio.to_thread(image_generator.generate_image, current_history, cfg.chat.image.edit)
     if image_url: await manager.send_json({"type": "image", "url": image_url})
     await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
@@ -133,27 +135,19 @@ async def run_ai_turn(turn: str, history_len_before_user_turn: int):
     await manager.send_json({"type": "stream_end"})
 
 async def process_user_audio(audio_bytes: bytes) -> str:
-    """webmオーディオバイトをデコードし、ASRで文字起こしする"""
     if not asr_engine:
         print("⚠️ [SYSTEM] 音声データ受信、しかしASRエンジンが無効です。")
         return ""
     try:
-        # pydubを使ってメモリ上でwebmを読み込み、wavに変換
         audio_segment = AudioSegment.from_file(BytesIO(audio_bytes), format="webm")
-        # ASRが期待する16kHz, 16-bit, モノラルに変換
         audio_segment = audio_segment.set_frame_rate(16000).set_sample_width(2).set_channels(1)
-        
-        # 変換後の生のPCMデータをバイトとして取得
         pcm_audio_bytes = audio_segment.raw_data
         print(f"🎤 [DECODE] 音声デコード成功: {len(pcm_audio_bytes)} bytes")
 
-        # Whisperはバイト直、他は一時ファイル経由で処理
         if isinstance(asr_engine, WhisperASR):
              user_message = await asyncio.to_thread(asr_engine.process_audio, pcm_audio_bytes)
         else:
-            # 他のASRも生のPCMバイトを期待していると仮定 (Voskも対応可能)
             user_message = await asyncio.to_thread(asr_engine.process_audio, pcm_audio_bytes)
-
         return user_message
     except Exception as e:
         print(f"❌ [ASR] 音声処理中にエラー: {e}")
@@ -177,13 +171,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message = message["text"]
             elif "bytes" in message:
                 user_message = await process_user_audio(message["bytes"])
-                # --- START: BUG FIX ---
-                # 文字起こし結果をクライアントに通知 (結果が空でも送る)
                 await manager.send_json({"type": "user_transcription", "data": user_message})
-                # --- END: BUG FIX ---
 
             if not user_message:
-                continue # テキストが空、または文字起こし結果が空なら次のループへ
+                continue
             
             history_len_before_user_turn, user_name = len(history), llmcfg.user_name
             history.append({"name": user_name, "content": user_message})
