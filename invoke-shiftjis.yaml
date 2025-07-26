@@ -38,11 +38,11 @@ chat:
     - name: "{ai0_name}"
       content: "こんにちは。今日もお疲れ様。"
   initial_turn: "{user_name}"
-  streaming_voice_output: ["。", "！", "？", "!", "?"]
+  streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
     edit: false
-    interval: 10 # 画像生成頻度（使わない場合この値を大きくする）
-  model_engine: gemini # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
+    interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
+  model_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
 
 # LLM
 gemini:
@@ -60,6 +60,7 @@ openrouter:
 image:
   model: gemini-2.0-flash-preview-image-generation
   path: ./gemini-image.png
+  mock: true
 
 vosk: # 音声認識のモデルへのパス
   model_dir: ./vosk-model-ja-0.22

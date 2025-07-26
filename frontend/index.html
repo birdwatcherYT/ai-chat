@@ -9,7 +9,7 @@
 <body>
     <div id="chat-container">
         <div id="chat-box"></div>
-        <div id="status-bar"></div>
+        <div id="status-area"></div>
         <div id="input-area">
             <input type="text" id="message-input" placeholder="メッセージを入力..." disabled>
             <button id="send-button" disabled>送信</button>
@@ -17,195 +17,126 @@
     </div>
 
     <script>
-        // DOM Elements
         const chatBox = document.getElementById('chat-box');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
-        const statusBar = document.getElementById('status-bar');
+        const statusArea = document.getElementById('status-area');
 
-        // Web Audio API
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        let audioQueue = [];
-        let isPlaying = false;
-        
-        // State
-        let currentAiMessageElement = null;
-        let userName = "U"; // ユーザー名を固定
+        let audioQueue = [], isPlaying = false, currentAiMessageElement = null, userName = "U";
 
-        // WebSocket Connection
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-        ws.onopen = function() {
-            console.log("[SYSTEM] WebSocket connection established.");
-            set_status("AIの準備ができました。");
-            enable_input();
-        };
+        ws.onopen = () => { console.log("[SYSTEM] WebSocket connected."); enable_input(); };
+        ws.onclose = () => { console.error("[SYSTEM] WebSocket closed."); update_status("main", "サーバーとの接続が切れました。"); disable_input(); }
+        ws.onerror = (e) => { console.error("[SYSTEM] WebSocket error:", e); update_status("main", "エラーが発生しました。"); disable_input(); }
 
-        ws.onmessage = function(event) {
+        ws.onmessage = (event) => {
             const message = JSON.parse(event.data);
             console.log("[RECEIVE]", message);
             
             switch (message.type) {
-                case 'history':
-                    append_message(message.data.name, message.data.content);
-                    break;
-                
+                case 'history': append_message(message.data.name, message.data.content); break;
                 // --- ここからが修正箇所 ---
                 case 'next_speaker':
-                    const speakerName = message.data;
-                    set_status(`＞ ${speakerName}が発言を考えています...`);
-                    // 空のメッセージ要素を先行して作成
-                    if (speakerName !== userName) {
-                        currentAiMessageElement = append_message(speakerName, '');
-                    }
+                    remove_status('speaker-decision'); // 古いステータスを消す
+                    update_status('ai_thinking', `＞ ${message.data}が発言を考えています...`);
+                    if (message.data !== userName) currentAiMessageElement = append_message(message.data, '');
                     break;
                 // --- ここまでが修正箇所 ---
-
-                case 'chunk':
-                    // next_speakerで要素は作成済みのはずなので、ここでは更新に専念
-                    update_ai_message(message.data.content);
-                    break;
-                case 'audio':
-                    audioQueue.push(message.data);
-                    play_from_queue();
-                    break;
-                case 'stream_end':
-                    finish_ai_turn();
-                    break;
+                case 'chunk': update_ai_message(message.data.content); break;
+                case 'audio': audioQueue.push(message.data); play_from_queue(); break;
+                case 'image': append_image(message.url); break;
+                case 'status_update': update_status(message.data.id, message.data.text); break;
+                case 'status_remove': remove_status(message.data.id); break;
+                case 'stream_end': finish_ai_turn(); break;
             }
         };
-        
-        ws.onclose = function() {
-            console.error("[SYSTEM] WebSocket connection closed.");
-            set_status("サーバーとの接続が切れました。リロードしてください。");
-            disable_input();
-        }
-        ws.onerror = function(error) {
-            console.error("[SYSTEM] WebSocket error:", error);
-            set_status("エラーが発生しました。");
-            disable_input();
-        }
 
-        // UI Functions
-        function set_status(text) {
-            statusBar.textContent = text;
-        }
-
-        function enable_input() {
-            messageInput.disabled = false;
-            sendButton.disabled = false;
-            set_status("メッセージを入力してください。");
-            console.log("[UI] Input enabled.");
-        }
-
-        function disable_input(text = "") {
-            messageInput.disabled = true;
-            sendButton.disabled = true;
-            if (text) set_status(text);
-            console.log("[UI] Input disabled.");
-        }
-
-        function append_message(name, text) {
-            const messageElement = document.createElement('div');
-            messageElement.classList.add('message');
-            const isUser = name === userName;
-            messageElement.classList.add(isUser ? 'user-message' : 'ai-message');
-            
-            messageElement.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`;
-            chatBox.appendChild(messageElement);
-            chatBox.scrollTop = chatBox.scrollHeight;
-            return messageElement;
-        }
-        
-        // --- ここからが修正箇所 ---
-        function update_ai_message(chunk) {
-            // currentAiMessageElementはnext_speakerイベントで作成されているはず
-            if (currentAiMessageElement) {
-                const p = currentAiMessageElement.querySelector('p');
-                p.textContent += chunk;
-                chatBox.scrollTop = chatBox.scrollHeight;
-            } else {
-                // フォールバック：万が一要素がなかった場合（最初のAIターンなど）
-                console.warn("[UI] currentAiMessageElement not found. A new one may be created implicitly.");
+        const update_status = (id, text) => {
+            let statusEl = document.getElementById(id);
+            if (!statusEl) {
+                statusEl = document.createElement('div');
+                statusEl.id = id; statusEl.className = 'status-item';
+                statusArea.appendChild(statusEl);
             }
-        }
-        // --- ここまでが修正箇所 ---
+            statusEl.textContent = text;
+        };
+        const remove_status = (id) => {
+            const statusEl = document.getElementById(id);
+            if (statusEl) statusEl.remove();
+        };
+        const clear_all_status = () => {
+            statusArea.innerHTML = '';
+        };
 
-        function finish_ai_turn() {
+        const enable_input = () => {
+            messageInput.disabled = false; sendButton.disabled = false;
+            update_status("main-prompt", "メッセージを入力してください。");
+            console.log("[UI] Input enabled.");
+        };
+        const disable_input = () => {
+            messageInput.disabled = true; sendButton.disabled = true;
+            console.log("[UI] Input disabled.");
+        };
+
+        const append_message = (name, text) => {
+            const msgEl = document.createElement('div');
+            msgEl.classList.add('message', name === userName ? 'user-message' : 'ai-message');
+            msgEl.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`;
+            chatBox.appendChild(msgEl); chatBox.scrollTop = chatBox.scrollHeight; return msgEl;
+        };
+        const update_ai_message = (chunk) => {
+            if (currentAiMessageElement) {
+                currentAiMessageElement.querySelector('p').textContent += chunk;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        };
+        const append_image = (url) => {
+            const imgEl = document.createElement('div');
+            imgEl.classList.add('message', 'image-message');
+            imgEl.innerHTML = `<img src="${url}" alt="Generated Image" onload="() => { chatBox.scrollTop = chatBox.scrollHeight; }">`;
+            chatBox.appendChild(imgEl); chatBox.scrollTop = chatBox.scrollHeight;
+        };
+        const finish_ai_turn = () => {
             console.log("[SYSTEM] AI turn finished.");
             currentAiMessageElement = null;
+            remove_status('ai_thinking');
             enable_input();
-        }
-
-        // Audio Functions
-        function play_from_queue() {
-            if (isPlaying || audioQueue.length === 0) {
-                return;
-            }
+        };
+        const play_from_queue = () => {
+            if (isPlaying || audioQueue.length === 0) return;
             isPlaying = true;
-            console.log(`[AUDIO] Starting playback. Queue size: ${audioQueue.length}`);
-            
-            const audioData = audioQueue.shift();
-            const rawAudio = atob(audioData.audio);
-            const samplerate = audioData.samplerate;
-            const dtype = audioData.dtype;
-
-            const buffer = new ArrayBuffer(rawAudio.length);
-            const view = new Uint8Array(buffer);
-            for (let i = 0; i < rawAudio.length; i++) {
-                view[i] = rawAudio.charCodeAt(i);
-            }
+            const { audio, samplerate, dtype } = audioQueue.shift();
+            const rawAudio = atob(audio);
+            const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer);
+            for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i);
             
             let float32Array;
             if (dtype === 'int16') {
-                 const int16Array = new Int16Array(buffer);
-                 float32Array = new Float32Array(int16Array.length);
-                 for (let i = 0; i < int16Array.length; i++) {
-                    float32Array[i] = int16Array[i] / 32768.0;
-                 }
-            } else if (dtype === 'float32') {
-                 float32Array = new Float32Array(buffer);
-            } else {
-                 console.error("[AUDIO] Unsupported dtype:", dtype);
-                 isPlaying = false;
-                 play_from_queue();
-                 return;
-            }
+                 const int16Array = new Int16Array(buffer); float32Array = new Float32Array(int16Array.length);
+                 for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768.0;
+            } else if (dtype === 'float32') { float32Array = new Float32Array(buffer);
+            } else { console.error("[AUDIO] Unsupported dtype:", dtype); isPlaying = false; play_from_queue(); return; }
 
             const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate);
             audioBuffer.copyToChannel(float32Array, 0);
-
             const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.onended = () => {
-                console.log("[AUDIO] Playback finished.");
-                isPlaying = false;
-                play_from_queue();
-            };
+            source.buffer = audioBuffer; source.connect(audioContext.destination);
+            source.onended = () => { isPlaying = false; play_from_queue(); };
             source.start();
-        }
-
-        // Event Listeners
-        function sendMessage() {
+        };
+        const sendMessage = () => {
             const message = messageInput.value;
             if (message && !messageInput.disabled) {
-                console.log("[SEND]", message);
-                ws.send(message);
-                // ユーザー自身のメッセージを即時表示
-                append_message(userName, message);
-                messageInput.value = '';
-                disable_input("＞ 次の話者を決めています...");
+                ws.send(message); append_message(userName, message);
+                messageInput.value = ''; disable_input();
+                clear_all_status();
+                update_status('speaker-decision', '＞ 次の話者を決めています...');
             }
-        }
-
+        };
         sendButton.onclick = sendMessage;
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-
+        messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage() });
     </script>
 </body>
 </html>

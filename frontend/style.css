@@ -75,3 +75,15 @@ body {
 #send-button:hover {
     background-color: #0056b3;
 }
+
+.image-message {
+    text-align: center;
+    padding: 10px 0;
+}
+
+.image-message img {
+    max-width: 80%;
+    max-height: 400px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
