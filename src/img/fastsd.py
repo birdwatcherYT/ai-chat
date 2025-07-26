@@ -1,5 +1,6 @@
 import base64
 import io
+import logging
 import os
 import time
 from io import BytesIO
@@ -15,7 +16,7 @@ from ..logger import get_logger
 from ..utils import simple_namespace_to_dict
 from .base import ImageGenerator
 
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 
 class FastSD(ImageGenerator):

@@ -1,3 +1,4 @@
+import logging
 import os
 import platform
 import subprocess
@@ -5,7 +6,7 @@ from types import SimpleNamespace
 
 from src.logger import get_logger
 
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 
 def open_image(image_path: str):

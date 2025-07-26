@@ -1,6 +1,7 @@
 # main.py
 
 import asyncio
+import logging
 import os
 import random
 from collections.abc import Coroutine
@@ -20,7 +21,7 @@ from src.tts.base import TextToSpeech
 from src.utils import open_image
 
 load_dotenv()
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 
 def log_task(name: str, event: str, details: str = ""):

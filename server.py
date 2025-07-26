@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import logging
 import traceback
 from io import BytesIO
 
@@ -16,7 +17,7 @@ from src.llm.common import history_to_text
 from src.logger import get_logger
 
 load_dotenv()
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 app = FastAPI()
 

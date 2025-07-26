@@ -1,4 +1,5 @@
 import json
+import logging
 import sys
 from types import SimpleNamespace
 
@@ -22,7 +23,7 @@ from .tts.aivisspeech import AivisSpeech
 from .tts.coeiroink import CoeiroInk
 from .tts.voicevox import VoiceVox
 
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 
 def load_config() -> SimpleNamespace:

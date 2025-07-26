@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from io import BytesIO
@@ -11,7 +12,7 @@ from ..llm.llm import LLMs
 from ..logger import get_logger
 from .base import ImageGenerator
 
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 
 class GeminiImg(ImageGenerator):

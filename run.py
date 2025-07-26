@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import sys
 
 from dotenv import load_dotenv
@@ -7,7 +8,7 @@ from dotenv import load_dotenv
 from src.app_context import load_config
 from src.logger import get_logger
 
-logger = get_logger(__name__, level="INFO")
+logger = get_logger(__name__, level=logging.INFO)
 
 load_dotenv()
 
