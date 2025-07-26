@@ -1,36 +1,15 @@
 import argparse
 import asyncio
-import json
 import sys
-from types import SimpleNamespace
 
-import yaml
 from dotenv import load_dotenv
 
+from src.app_context import load_config
 from src.logger import get_logger
 
 logger = get_logger(__name__, level="INFO")
 
 load_dotenv()
-
-
-# --- 設定ファイルを安全に読み込む ---
-def load_config():
-    """config.yamlをUTF-8で読み込み、属性アクセス可能なオブジェクトを返す"""
-    try:
-        with open("config.yaml", encoding="utf-8") as f:
-            config_dict = yaml.safe_load(f)
-            # 辞書を再帰的にSimpleNamespaceに変換して属性アクセスを可能にする
-            return json.loads(
-                json.dumps(config_dict), object_hook=lambda d: SimpleNamespace(**d)
-            )
-    except FileNotFoundError:
-        logger.error("❌ [エラー] 設定ファイル 'config.yaml' が見つかりません。")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"❌ [エラー] config.yamlの読み込みまたは解析に失敗しました: {e}")
-        sys.exit(1)
-
 
 # --- 各タスクの定義 ---
 

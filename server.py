@@ -1,26 +1,19 @@
+# server.py
+
 import asyncio
 import base64
-import json
 import traceback
 from io import BytesIO
-from types import SimpleNamespace
 
-import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
-from src.img.base import ImageGenerator
-from src.img.fastsd import FastSD
-from src.img.gemini_img import GeminiImg
-from src.llm.common import LLMConfig, history_to_text
-from src.llm.llm import LLMs
+from src.app_context import AppContext, load_config
+from src.llm.common import history_to_text
 from src.logger import get_logger
-from src.tts.aivisspeech import AivisSpeech
-from src.tts.coeiroink import CoeiroInk
-from src.tts.voicevox import VoiceVox
 
 GENERATED_IMAGES_DIR = "generated_images"
 GENERATED_IMAGES_URL_PATH = "/images"
@@ -28,60 +21,24 @@ load_dotenv()
 logger = get_logger(__name__, level="INFO")
 
 app = FastAPI()
-cfg, llmcfg, llms, engines, ai_config, history, img_generator, asr_engine = [None] * 8
+
+ctx: AppContext | None = None
+# historyはセッションごとにリセットできるよう、AppContextからコピーして使う
+history: list[dict[str, str]] | None = None
+
 llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
 
 
+# AppContextを使った初期化
 def load_config_and_init():
-    global cfg, llmcfg, llms, engines, ai_config, history, img_generator, asr_engine
+    """アプリケーションコンテキストを初期化する"""
+    global ctx, history
     try:
-        with open("config.yaml", encoding="utf-8") as f:
-            config_dict = yaml.safe_load(f)
-            cfg = json.loads(
-                json.dumps(config_dict), object_hook=lambda d: SimpleNamespace(**d)
-            )
-        llmcfg = LLMConfig(cfg)
-        llms = LLMs(llmcfg)
-
-        image_model = cfg.chat.image.model
-        img_generator = None
-        if image_model == "fastsd":
-            img_generator = FastSD(llms, **vars(cfg.fastsd))
-        elif image_model == "gemini_image":
-            img_generator = GeminiImg(llms, **vars(cfg.gemini_image))
-        elif image_model == "mock":
-            img_generator = ImageGenerator(llms)
-
-        engines = {
-            "voicevox": VoiceVox(),
-            "coeiroink": CoeiroInk(),
-            "aivisspeech": AivisSpeech(),
-        }
-        ai_config = {ai.name: ai.voice for ai in cfg.chat.ai}
-        history = [
-            {
-                "name": llmcfg.format(item.name),
-                "content": llmcfg.format(item.content),
-            }
-            for item in cfg.chat.initial_message
-        ]
-        user_input_mode = cfg.chat.user.input
-        if user_input_mode == "vosk":
-            from src.asr.vosk_asr import VoskASR
-
-            asr_engine = VoskASR(**vars(cfg.vosk))
-        elif user_input_mode == "whisper":
-            from src.asr.whisper_asr import WhisperASR
-
-            asr_engine = WhisperASR(**vars(cfg.whisper), **vars(cfg.webrtcvad))
-        elif user_input_mode == "gemini":
-            from src.asr.gemini_asr import GeminiASR
-
-            asr_engine = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
-        else:
-            asr_engine = None
-        logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {user_input_mode})")
+        config = load_config()
+        ctx = AppContext(config)
+        history = list(ctx.initial_history)  # 初期履歴をコピー
+        logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
     except Exception as e:
         logger.error(f"❌ [SYSTEM] 初期化エラー: {e}")
         traceback.print_exc()
@@ -122,7 +79,7 @@ def llm_stream_blocking_task(
 ):
     full_response, answer_segment = "", ""
     try:
-        utter_chain = llms.get_utter_chain()
+        utter_chain = ctx.llms.get_utter_chain()
         utter_prompt_vars = {
             "speaker": turn,
             "messages": history_to_text(current_history),
@@ -136,7 +93,10 @@ def llm_stream_blocking_task(
                 ),
                 loop,
             )
-            if answer_segment and answer_segment[-1] in cfg.chat.streaming_voice_output:
+            if (
+                answer_segment
+                and answer_segment[-1] in ctx.cfg.chat.streaming_voice_output
+            ):
                 asyncio.run_coroutine_threadsafe(
                     llm_text_queue.put((turn, answer_segment)), loop
                 )
@@ -160,11 +120,11 @@ async def synthesis_consumer():
             await audio_data_queue.put(None)
             break
         speaker_name, text = task
-        voice_config = ai_config.get(speaker_name)
+        voice_config = ctx.ai_config.get(speaker_name)
         if not voice_config:
             continue
         try:
-            data, sr = await engines[voice_config.engine].synthesize_async(
+            data, sr = await ctx.tts_engines[voice_config.engine].synthesize_async(
                 text, **vars(voice_config.config)
             )
             if data is not None and sr is not None:
@@ -200,9 +160,8 @@ async def image_generation_task(current_history):
         }
     )
     try:
-        # generate_imageは(URL, パス)のタプルを返すので、URLのみ受け取る
         image_url, _ = await asyncio.to_thread(
-            img_generator.generate_image, current_history, cfg.chat.image.edit
+            ctx.img_generator.generate_image, current_history, ctx.cfg.chat.image.edit
         )
         if image_url:
             await manager.send_json({"type": "image", "url": image_url})
@@ -217,13 +176,11 @@ async def image_generation_task(current_history):
                 },
             }
         )
-        # 3秒後にエラーメッセージを消す
         await asyncio.sleep(3)
         await manager.send_json(
             {"type": "status_remove", "data": {"id": f"{task_id}_error"}}
         )
     finally:
-        # 成功・失敗に関わらず、生成中のステータスは必ず削除する
         await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
 
@@ -238,29 +195,25 @@ async def run_ai_turn(turn: str, history_len_before_user_turn: int):
     global history
     loop = asyncio.get_running_loop()
 
-    # 画像生成が必要かどうかを先に判断
     history_len_after_user_turn = len(history)
-    interval = cfg.chat.image.interval
+    interval = ctx.cfg.chat.image.interval
     should_generate_image = (history_len_before_user_turn // interval) < (
         history_len_after_user_turn // interval
     )
 
-    # 画像生成タスクを待たずにバックグラウンドで開始
     if should_generate_image:
         asyncio.create_task(image_generation_task(list(history)))
 
-    # メインのAI応答パイプラインは独立して実行し、完了を待つ
     main_response = await main_pipeline_task(turn, loop)
 
     if main_response:
         history.append(main_response)
 
-    # AIの応答が終わったことをクライアントに通知し、UIの入力を有効化させる
     await manager.send_json({"type": "stream_end"})
 
 
 async def process_user_audio(audio_bytes: bytes) -> str:
-    if not asr_engine:
+    if not ctx.asr_engine:
         logger.warning("⚠️ [SYSTEM] 音声データ受信、しかしASRエンジンが無効です。")
         return ""
     try:
@@ -272,7 +225,7 @@ async def process_user_audio(audio_bytes: bytes) -> str:
         logger.info(f"🎤 [DECODE] 音声デコード成功: {len(pcm_audio_bytes)} bytes")
 
         user_message = await asyncio.to_thread(
-            asr_engine.process_audio, pcm_audio_bytes
+            ctx.asr_engine.process_audio, pcm_audio_bytes
         )
         return user_message
     except Exception as e:
@@ -286,13 +239,18 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     global history
 
+    if ctx is None or history is None:
+        logger.error("❌ [SYSTEM] アプリケーションが初期化されていません。")
+        await websocket.close(code=1011, reason="Server not initialized")
+        return
+
     # クライアントに設定情報を送信
     await manager.send_json(
         {
             "type": "config",
             "data": {
-                "user_input_mode": cfg.chat.user.input,
-                "user_name": llmcfg.user_name,
+                "user_input_mode": ctx.cfg.chat.user.input,
+                "user_name": ctx.llmcfg.user_name,
             },
         }
     )
@@ -301,10 +259,10 @@ async def websocket_endpoint(websocket: WebSocket):
         await manager.send_json({"type": "history", "data": message})
     try:
         initial_turn, history_len_before = (
-            llmcfg.format(cfg.chat.initial_turn),
+            ctx.initial_turn,
             len(history),
         )
-        if (history_len_before + 1) % cfg.chat.image.interval == 0:
+        if (history_len_before + 1) % ctx.cfg.chat.image.interval == 0:
             await manager.send_json({"type": "next_speaker", "data": initial_turn})
             asyncio.create_task(run_ai_turn(initial_turn, history_len_before))
         while True:
@@ -321,9 +279,9 @@ async def websocket_endpoint(websocket: WebSocket):
             if not user_message:
                 continue
 
-            history_len_before_user_turn, user_name = len(history), llmcfg.user_name
+            history_len_before_user_turn, user_name = len(history), ctx.llmcfg.user_name
             history.append({"name": user_name, "content": user_message})
-            next_turn = llms.get_next_speaker(history, except_names=[user_name])
+            next_turn = ctx.llms.get_next_speaker(history, except_names=[user_name])
             await manager.send_json({"type": "next_speaker", "data": next_turn})
             asyncio.create_task(run_ai_turn(next_turn, history_len_before_user_turn))
     except WebSocketDisconnect:

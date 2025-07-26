@@ -214,7 +214,7 @@
             aiTurnFinished = true;
             if (!isPlaying) {
                 if (isContinuousMode) {
-                    // ★修正点: 先にUIを有効化してから、録音を開始する
+                    // 先にUIを有効化してから、録音を開始する
                     enable_input(false); // falseを渡し不要なプロンプト表示を抑制
                     startRecording();
                 } else {
@@ -227,7 +227,7 @@
                 isPlaying = false;
                 if (aiTurnFinished) {
                     if (isContinuousMode) {
-                        // ★修正点: こちらも同様に、先にUIを有効化する
+                        // 先にUIを有効化する
                         enable_input(false); // falseを渡し不要なプロンプト表示を抑制
                         startRecording();
                     } else {

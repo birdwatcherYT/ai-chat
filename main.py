@@ -1,3 +1,5 @@
+# main.py
+
 import asyncio
 import os
 import random
@@ -8,17 +10,13 @@ from types import SimpleNamespace
 import sounddevice as sd
 from dotenv import load_dotenv
 
+from src.app_context import AppContext
 from src.asr.base import SpeechToText
 from src.img.base import ImageGenerator
-from src.img.fastsd import FastSD
-from src.img.gemini_img import GeminiImg
 from src.llm.common import LLMConfig, history_to_text
 from src.llm.llm import LLMs
 from src.logger import get_logger
-from src.tts.aivisspeech import AivisSpeech
 from src.tts.base import TextToSpeech
-from src.tts.coeiroink import CoeiroInk
-from src.tts.voicevox import VoiceVox
 from src.utils import open_image
 
 load_dotenv()
@@ -34,9 +32,7 @@ async def playback_worker(queue: asyncio.Queue):
     while True:
         data, sr = await queue.get()
         log_task("PLAYBACK_WORKER", "START")
-        # sd.playは非ブロッキングなのでto_threadは不要
         sd.play(data, sr)
-        # sd.waitはブロッキングなのでto_threadが必要
         await asyncio.to_thread(sd.wait)
         log_task("PLAYBACK_WORKER", "END")
         queue.task_done()
@@ -106,20 +102,16 @@ class ChatState:
         llms: LLMs,
         asr: SpeechToText | None,
         img_generator: ImageGenerator,
+        initial_history: list[dict[str, str]],
+        initial_turn: str,
     ):
         self.cfg = cfg
         self.llmcfg = llmcfg
         self.llms = llms
         self.asr = asr
         self.img_generator = img_generator
-        self.history = [
-            {
-                "name": llmcfg.format(item.name),
-                "content": llmcfg.format(item.content),
-            }
-            for item in cfg.chat.initial_message
-        ]
-        self.turn = llmcfg.format(cfg.chat.initial_turn)
+        self.history = initial_history
+        self.turn = initial_turn
         self.loop = asyncio.get_running_loop()
         self.synthesis_queue = asyncio.Queue()
 
@@ -201,54 +193,28 @@ async def chat_start(cfg: SimpleNamespace):
     executor = ThreadPoolExecutor(max_workers=os.cpu_count() * 5 or 32)
     loop.set_default_executor(executor)
 
-    llmcfg = LLMConfig(cfg)
-    llms = LLMs(llmcfg)
+    # AppContextで初期化をまとめる
+    ctx = AppContext(cfg)
+    logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
 
-    # 画像生成エンジンの初期化
-    image_model = cfg.chat.image.model
-    img_generator: ImageGenerator | None = None
-    if image_model == "fastsd":
-        img_generator = FastSD(llms, **vars(cfg.fastsd))
-    elif image_model == "gemini_image":
-        img_generator = GeminiImg(llms, **vars(cfg.gemini_image))
-    elif image_model == "mock":
-        img_generator = ImageGenerator(llms)
+    # ChatStateに必要なものを渡して初期化
+    state = ChatState(
+        cfg=ctx.cfg,
+        llmcfg=ctx.llmcfg,
+        llms=ctx.llms,
+        asr=ctx.asr_engine,
+        img_generator=ctx.img_generator,
+        initial_history=list(ctx.initial_history),
+        initial_turn=ctx.initial_turn,
+    )
 
-    # 音声認識エンジンの初期化
-    asr: SpeechToText | None = None
-    user_input_mode = cfg.chat.user.input
-    log_task("MAIN", "INIT", f"User input mode: {user_input_mode}")
-    if user_input_mode == "vosk":
-        from src.asr.vosk_asr import VoskASR
-
-        # SimpleNamespaceをvars()で辞書に変換してから展開
-        asr = VoskASR(**vars(cfg.vosk))
-    elif user_input_mode == "whisper":
-        from src.asr.whisper_asr import WhisperASR
-
-        # SimpleNamespaceをvars()で辞書に変換してから展開
-        asr = WhisperASR(**vars(cfg.whisper), **vars(cfg.webrtcvad))
-    elif user_input_mode == "gemini":
-        from src.asr.gemini_asr import GeminiASR
-
-        # SimpleNamespaceをvars()で辞書に変換してから展開
-        asr = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
-
-    state = ChatState(cfg, llmcfg, llms, asr, img_generator)
-
-    engines = {
-        "voicevox": VoiceVox(),
-        "coeiroink": CoeiroInk(),
-        "aivisspeech": AivisSpeech(),
-    }
-    ai_config = {ai.name: ai.voice for ai in cfg.chat.ai}
-    if cfg.chat.user.input == "ai":
-        ai_config[llmcfg.user_name] = cfg.chat.user.voice
     playback_queue = asyncio.Queue()
-    state.synthesis_queue = asyncio.Queue()
     asyncio.create_task(playback_worker(playback_queue))
+    # synthesis_workerに必要なエンジンと設定を渡す
     asyncio.create_task(
-        synthesis_worker(state.synthesis_queue, playback_queue, engines, ai_config)
+        synthesis_worker(
+            state.synthesis_queue, playback_queue, ctx.tts_engines, ctx.ai_config
+        )
     )
 
     print("=" * 20, "チャットを開始します", "=" * 20)
@@ -256,11 +222,8 @@ async def chat_start(cfg: SimpleNamespace):
     # 最初のチャットループタスクを開始
     asyncio.create_task(chat_loop(state))
 
-    # プログラムが終了しないように、無限に待機する
-    # Ctrl+Cで終了させる
     log_task("MAIN", "RUNNING")
     try:
-        # asyncio.Event().wait() を使って、Ctrl+C を待つ
         await asyncio.Event().wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
         log_task("MAIN", "SHUTDOWN")
