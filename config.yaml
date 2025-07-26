@@ -41,8 +41,8 @@ chat:
   streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
     model: fastsd # mock, gemini_image, fastsd
-    edit: false # 画像編集モード
-    interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
+    edit: false   # 画像編集モード
+    interval: 5   # 画像生成頻度（使わない場合この値を大きくする）
 
     save_dir: "generated_images" # 生成された画像の保存先ディレクトリ
     url_path: "/images" # Webサーバー経由で画像にアクセスするためのURLパス
@@ -67,6 +67,23 @@ gemini_image:
 
 fastsd:
   base_url: http://localhost:8000
+  settings:
+    # モデル
+    lcm_model_id: stabilityai/sd-turbo
+    lcm_lora:
+      base_model_id: Lykon/dreamshaper-8
+      lcm_lora_id: latent-consistency/lcm-lora-sdv1-5
+    use_lcm_lora: true
+    use_tiny_auto_encoder: true
+    # 生成
+    image_width: 512
+    image_height: 512
+    inference_steps: 4
+    guidance_scale: 1
+    seed: null
+    use_seed: false
+    # image to imageのとき:
+    strength: 0.8
 
 # ASR
 vosk:

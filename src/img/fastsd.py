@@ -2,8 +2,9 @@ import base64
 import io
 import os
 import time
-from dataclasses import dataclass
 from io import BytesIO
+from types import SimpleNamespace
+from typing import Literal
 
 import requests
 from PIL import Image
@@ -11,44 +12,47 @@ from PIL import Image
 from ..llm.common import history_to_text
 from ..llm.llm import LLMs
 from ..logger import get_logger
+from ..utils import simple_namespace_to_dict
 from .base import ImageGenerator
 
 logger = get_logger(__name__, level="INFO")
 
 
-@dataclass
-class GenerationSettings:
-    """画像生成の設定パラメータ"""
-
-    prompt: str
-    negative_prompt: str = ""
-    seed: int = -1
-    guidance_scale: float = 1.0
-    image_height: int = 512
-    image_width: int = 512
-    inference_steps: int = 4
-    number_of_images: int = 1
-    use_openvino: bool = False
-    use_tiny_auto_encoder: bool = True
-    use_lcm_lora: bool = True
-    diffusion_task: str = "text_to_image"
-    init_image: str | None = None
-    strength: float | None = None
-
-
 class FastSD(ImageGenerator):
     """Stable Diffusion APIクライアント"""
 
-    def __init__(self, save_dir: str, url_path: str, llms: LLMs, base_url: str):
+    def __init__(
+        self,
+        save_dir: str,
+        url_path: str,
+        llms: LLMs,
+        base_url: str,
+        settings: SimpleNamespace,
+    ):
         super().__init__(llms, save_dir, url_path)
         self.server_url = base_url
+        self.base_settings = settings
 
-    def _generate_image(self, settings: GenerationSettings) -> tuple[str, str] | None:
+    def _generate_image(
+        self,
+        prompt: str = "",
+        negative_prompt: str = "",
+        diffusion_task: Literal["text_to_image", "image_to_image"] = "text_to_image",
+        init_image: str = None,
+    ) -> tuple[str, str] | None:
         """画像生成リクエストを送信"""
         url = f"{self.server_url}/api/generate"
 
-        # dataclassを辞書に変換
-        payload = {k: v for k, v in settings.__dict__.items() if v is not None}
+        # DeepCopyと変換を同時に行う
+        payload = simple_namespace_to_dict(self.base_settings)
+        payload["prompt"] = prompt
+        payload["negative_prompt"] = negative_prompt
+        payload["diffusion_task"] = diffusion_task
+        if diffusion_task == "text_to_image":
+            del payload["strength"]
+        else:
+            payload["init_image"] = init_image
+        payload["number_of_images"] = 1
 
         response = requests.post(url, json=payload)
         response.raise_for_status()
@@ -92,20 +96,15 @@ class FastSD(ImageGenerator):
 
         prompt = f"anime style, {situation}"
         if edit and self.last_image:
+            # image to image
             buffered = io.BytesIO()
             self.last_image.save(buffered, format="JPEG")
             img_byte = buffered.getvalue()
             encoded_image = base64.b64encode(img_byte).decode("utf-8")
 
-            settings = GenerationSettings(
+            return self._generate_image(
                 prompt=prompt,
                 diffusion_task="image_to_image",
                 init_image=encoded_image,
-                strength=0.8,
             )
-        else:
-            settings = GenerationSettings(
-                prompt=prompt,
-                diffusion_task="text_to_image",
-            )
-        return self._generate_image(settings)
+        return self._generate_image(prompt=prompt)

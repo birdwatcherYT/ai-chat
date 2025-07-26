@@ -135,6 +135,36 @@ def task_asr(args):
     logger.info("✅ 音声認識テストが完了しました。")
 
 
+def task_fastsd_status(args):
+    """FastSDのシステム情報とモデル一覧を取得して表示します"""
+    import json
+
+    from src.img.fastsd import FastSD
+    from src.llm.common import LLMConfig
+    from src.llm.llm import LLMs
+
+    config = load_config()
+    llmcfg = LLMConfig(config)
+    llms = LLMs(llmcfg)
+    common_args = {
+        "llms": llms,
+        "save_dir": config.chat.image.save_dir,
+        "url_path": config.chat.image.url_path,
+    }
+
+    client = FastSD(**common_args, **vars(config.fastsd))
+
+    # システム情報を取得
+    print("=== システム情報 ===")
+    info = client.get_system_info()
+    print(json.dumps(info, indent=2, ensure_ascii=False))
+
+    # モデル一覧を取得
+    print("\n=== 利用可能なモデル一覧 ===")
+    models = client.get_available_models()
+    print(json.dumps(models, indent=2, ensure_ascii=False))
+
+
 def task_img_gen(args):
     """指定されたエンジンで画像を生成します"""
     from src.llm.common import LLMConfig
@@ -154,11 +184,10 @@ def task_img_gen(args):
     logger.info(f"🎨 {engine}で画像生成を開始します: '{args.prompt}'")
 
     if engine == "fastsd":
-        from src.img.fastsd import FastSD, GenerationSettings
+        from src.img.fastsd import FastSD
 
         client = FastSD(**common_args, **vars(config.fastsd))
-        settings = GenerationSettings(prompt=args.prompt)
-        _, save_path = client._generate_image(settings)
+        _, save_path = client._generate_image(prompt=args.prompt)
     elif engine == "gemini_image":
         from src.img.gemini_img import GeminiImg
 
@@ -229,6 +258,12 @@ if __name__ == "__main__":
     )
     parser_asr.add_argument("--loop", action="store_true", help="連続して認識を行う")
     parser_asr.set_defaults(func=task_asr)
+
+    # fastsd-status タスク
+    parser_fastsd_status = subparsers.add_parser(
+        "fastsd-status", help="FastSDのシステム情報とモデル一覧を表示します"
+    )
+    parser_fastsd_status.set_defaults(func=task_fastsd_status)
 
     # image-gen タスク
     parser_img_gen = subparsers.add_parser("img-gen", help="AIで画像を生成します")
