@@ -199,13 +199,32 @@ async def image_generation_task(current_history):
             "data": {"id": task_id, "text": "🎨 画像を生成しています..."},
         }
     )
-    # generate_imageは(URL, パス)のタプルを返すので、URLのみ受け取る
-    image_url, _ = await asyncio.to_thread(
-        img_generator.generate_image, current_history, cfg.chat.image.edit
-    )
-    if image_url:
-        await manager.send_json({"type": "image", "url": image_url})
-    await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
+    try:
+        # generate_imageは(URL, パス)のタプルを返すので、URLのみ受け取る
+        image_url, _ = await asyncio.to_thread(
+            img_generator.generate_image, current_history, cfg.chat.image.edit
+        )
+        if image_url:
+            await manager.send_json({"type": "image", "url": image_url})
+    except Exception as e:
+        logger.error(f"❌ [IMAGE] 画像生成中にエラーが発生しました: {e}")
+        await manager.send_json(
+            {
+                "type": "status_update",
+                "data": {
+                    "id": f"{task_id}_error",
+                    "text": "🎨 画像の生成に失敗しました。",
+                },
+            }
+        )
+        # 3秒後にエラーメッセージを消す
+        await asyncio.sleep(3)
+        await manager.send_json(
+            {"type": "status_remove", "data": {"id": f"{task_id}_error"}}
+        )
+    finally:
+        # 成功・失敗に関わらず、生成中のステータスは必ず削除する
+        await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
 
 async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
@@ -217,18 +236,26 @@ async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
 
 async def run_ai_turn(turn: str, history_len_before_user_turn: int):
     global history
-    tasks_to_run, loop = [], asyncio.get_running_loop()
-    main_pipeline = main_pipeline_task(turn, loop)
-    tasks_to_run.append(main_pipeline)
+    loop = asyncio.get_running_loop()
+
+    # 画像生成が必要かどうかを先に判断
     history_len_after_user_turn = len(history)
     interval = cfg.chat.image.interval
-    if (history_len_before_user_turn // interval) < (
+    should_generate_image = (history_len_before_user_turn // interval) < (
         history_len_after_user_turn // interval
-    ):
-        tasks_to_run.append(image_generation_task(list(history)))
-    results = await asyncio.gather(*tasks_to_run)
-    if results[0]:
-        history.append(results[0])
+    )
+
+    # 画像生成タスクを待たずにバックグラウンドで開始
+    if should_generate_image:
+        asyncio.create_task(image_generation_task(list(history)))
+
+    # メインのAI応答パイプラインは独立して実行し、完了を待つ
+    main_response = await main_pipeline_task(turn, loop)
+
+    if main_response:
+        history.append(main_response)
+
+    # AIの応答が終わったことをクライアントに通知し、UIの入力を有効化させる
     await manager.send_json({"type": "stream_end"})
 
 
