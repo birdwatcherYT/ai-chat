@@ -257,6 +257,16 @@ async def process_user_audio(audio_bytes: bytes) -> str:
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     global history
+
+    # クライアントに設定情報を送信
+    await manager.send_json({
+        "type": "config",
+        "data": {
+            "user_input_mode": cfg.chat.user.input,
+            "user_name": llmcfg.user_name
+        }
+    })
+
     for message in history:
         await manager.send_json({"type": "history", "data": message})
     try:
