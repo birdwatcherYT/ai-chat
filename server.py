@@ -1,15 +1,16 @@
 import asyncio
 import base64
+import json
 import os
 import traceback
 from io import BytesIO
+from types import SimpleNamespace
 
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from invoke.config import Config
 from pydub import AudioSegment
 
 from src.asr.gemini_asr import GeminiASR
@@ -38,7 +39,10 @@ def load_config_and_init():
     global cfg, llmcfg, llms, engines, ai_config, history, image_generator, asr_engine
     try:
         with open("config.yaml", encoding="utf-8") as f:
-            cfg = Config(yaml.safe_load(f))
+            config_dict = yaml.safe_load(f)
+            cfg = json.loads(
+                json.dumps(config_dict), object_hook=lambda d: SimpleNamespace(**d)
+            )
         llmcfg = LLMConfig(cfg)
         llms = LLMs(llmcfg)
         os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
@@ -50,21 +54,24 @@ def load_config_and_init():
             "coeiroink": CoeiroInk(),
             "aivisspeech": AivisSpeech(),
         }
-        ai_config = {ai["name"]: ai["voice"] for ai in cfg.chat.ai}
+        ai_config = {ai.name: ai.voice for ai in cfg.chat.ai}
         history = [
             {
-                "name": llmcfg.format(item["name"]),
-                "content": llmcfg.format(item["content"]),
+                "name": llmcfg.format(item.name),
+                "content": llmcfg.format(item.content),
             }
             for item in cfg.chat.initial_message
         ]
         user_input_mode = cfg.chat.user.input
         if user_input_mode == "vosk":
-            asr_engine = VoskASR(**cfg.vosk)
+            # SimpleNamespaceをvars()で辞書に変換してから展開
+            asr_engine = VoskASR(**vars(cfg.vosk))
         elif user_input_mode == "whisper":
-            asr_engine = WhisperASR(**cfg.whisper, **cfg.webrtcvad)
+            # SimpleNamespaceをvars()で辞書に変換してから展開
+            asr_engine = WhisperASR(**vars(cfg.whisper), **vars(cfg.webrtcvad))
         elif user_input_mode == "gemini":
-            asr_engine = GeminiASR(cfg.gemini.model, **cfg.webrtcvad)
+            # SimpleNamespaceをvars()で辞書に変換してから展開
+            asr_engine = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
         else:
             asr_engine = None
         logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {user_input_mode})")
@@ -147,11 +154,12 @@ async def synthesis_consumer():
             break
         speaker_name, text = task
         voice_config = ai_config.get(speaker_name)
-        if not voice_config or not voice_config.get("engine"):
+        if not voice_config or not hasattr(voice_config, "engine"):
             continue
         try:
-            data, sr = await engines[voice_config["engine"]].synthesize_async(
-                text, **voice_config["config"]
+            # SimpleNamespaceをvars()で辞書に変換してから展開
+            data, sr = await engines[voice_config.engine].synthesize_async(
+                text, **vars(voice_config.config)
             )
             if data is not None and sr is not None:
                 await audio_data_queue.put((data, sr, str(data.dtype)))

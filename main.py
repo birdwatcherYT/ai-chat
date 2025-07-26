@@ -5,10 +5,10 @@ import random
 import subprocess
 from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import sounddevice as sd
 from dotenv import load_dotenv
-from invoke.config import Config
 
 from src.asr.base import SpeechToText
 from src.lmm.common import LLMConfig, history_to_text
@@ -65,16 +65,17 @@ async def synthesis_worker(
     synthesis_queue: asyncio.Queue,
     playback_queue: asyncio.Queue,
     engines: dict[str, TextToSpeech],
-    ai_config: dict[str, Config],
+    ai_config: dict[str, SimpleNamespace],
 ):
     while True:
         name, text_segment = await synthesis_queue.get()
         log_task("SYNTHESIS_WORKER", "START", f"'{text_segment[:15]}...'")
         cfg = ai_config.get(name)
-        if cfg and cfg.get("engine"):
+        if cfg and hasattr(cfg, "engine"):
             try:
-                data, sr = await engines[cfg["engine"]].synthesize_async(
-                    text_segment, **cfg["config"]
+                # SimpleNamespaceをvars()で辞書に変換してから展開
+                data, sr = await engines[cfg.engine].synthesize_async(
+                    text_segment, **vars(cfg.config)
                 )
                 if data is not None:
                     await playback_queue.put((data, sr))
@@ -122,7 +123,7 @@ def llm_stream_task(
 class ChatState:
     def __init__(
         self,
-        cfg: Config,
+        cfg: SimpleNamespace,
         llmcfg: LLMConfig,
         llms: LLMs,
         asr: SpeechToText | None,
@@ -135,8 +136,8 @@ class ChatState:
         self.image_generator = image_generator
         self.history = [
             {
-                "name": llmcfg.format(item["name"]),
-                "content": llmcfg.format(item["content"]),
+                "name": llmcfg.format(item.name),
+                "content": llmcfg.format(item.content),
             }
             for item in cfg.chat.initial_message
         ]
@@ -153,9 +154,9 @@ async def chat_loop(state: ChatState):
     if state.turn == state.llmcfg.user_name and state.cfg.chat.user.input != "ai":
         if state.asr:
             user_input = await asyncio.to_thread(state.asr.audio_input)
+            print(user_input, flush=True)
         else:
             user_input = await asyncio.to_thread(input)
-        print(user_input, flush=True)
         current_message = user_input
     else:
         utter_chain = state.llms.get_utter_chain()
@@ -216,7 +217,7 @@ async def generate_and_open_image(
     log_task("IMAGE_GENERATION", "TASK_FINISHED")
 
 
-async def chat_start(cfg: Config):
+async def chat_start(cfg: SimpleNamespace):
     """非同期タスクをセットアップし、チャットループを開始する"""
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=os.cpu_count() * 5 or 32)
@@ -231,15 +232,18 @@ async def chat_start(cfg: Config):
     if user_input_mode == "vosk":
         from src.asr.vosk_asr import VoskASR
 
-        asr = VoskASR(**cfg.vosk)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr = VoskASR(**vars(cfg.vosk))
     elif user_input_mode == "whisper":
         from src.asr.whisper_asr import WhisperASR
 
-        asr = WhisperASR(**cfg.whisper, **cfg.webrtcvad)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr = WhisperASR(**vars(cfg.whisper), **vars(cfg.webrtcvad))
     elif user_input_mode == "gemini":
         from src.asr.gemini_asr import GeminiASR
 
-        asr = GeminiASR(cfg.gemini.model, **cfg.webrtcvad)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
 
     state = ChatState(cfg, llmcfg, llms, asr, image_generator)
 
@@ -248,7 +252,7 @@ async def chat_start(cfg: Config):
         "coeiroink": CoeiroInk(),
         "aivisspeech": AivisSpeech(),
     }
-    ai_config = {ai["name"]: ai["voice"] for ai in cfg.chat.ai}
+    ai_config = {ai.name: ai.voice for ai in cfg.chat.ai}
     if cfg.chat.user.input == "ai":
         ai_config[llmcfg.user_name] = cfg.chat.user.voice
     playback_queue = asyncio.Queue()
@@ -260,7 +264,6 @@ async def chat_start(cfg: Config):
 
     print("=" * 20, "チャットを開始します", "=" * 20)
 
-    # --- START: MODIFICATION (ループ終了バグ修正) ---
     # 最初のチャットループタスクを開始
     asyncio.create_task(chat_loop(state))
 
@@ -273,4 +276,3 @@ async def chat_start(cfg: Config):
     except (KeyboardInterrupt, asyncio.CancelledError):
         log_task("MAIN", "SHUTDOWN")
         print("\nチャットを終了します。")
-    # --- END: MODIFICATION ---

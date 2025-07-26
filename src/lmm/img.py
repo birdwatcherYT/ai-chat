@@ -21,11 +21,12 @@ class ImageGenerator:
         self.save_dir = save_dir
         self.url_path = url_path
         # mockがTrueでない場合のみクライアントを初期化
-        if not self.llmcfg.image.get("mock", False):
+        if not hasattr(self.llmcfg.image, "mock") or not self.llmcfg.image.mock:
             self.client = genai.Client()
         else:
             self.client = None
-        self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        self.llm = ChatGoogleGenerativeAI(**vars(llmcfg.gemini))
         self.situation_chain = self.get_situation_chain()
         self.last_image: Image.Image = None
 
@@ -82,7 +83,7 @@ class ImageGenerator:
         self, history: list[dict[str, str]], edit: bool = False
     ) -> tuple[str, str] | None:
         """状況を判断し、画像を生成して(URL, ローカルパス)のタプルを返す"""
-        if self.llmcfg.image.mock:
+        if hasattr(self.llmcfg.image, "mock") and self.llmcfg.image.mock:
             logger.debug("🖼️ [MOCK-IMAGE] Returning a local mock image.")
             time.sleep(3)  # リアルな待機時間をシミュレート
             mock_filename = "mock.png"
@@ -106,4 +107,3 @@ class ImageGenerator:
         else:
             prompt = f"次の状況を表すアニメ風画像を生成してください:\n{situation}"
             return self._generate_image(prompt)
-        # --- END: MODIFICATION ---

@@ -1,10 +1,11 @@
 import argparse
 import asyncio
+import json
 import sys
+from types import SimpleNamespace
 
 import yaml
 from dotenv import load_dotenv
-from invoke.config import Config
 
 from src.logger import get_logger
 
@@ -15,11 +16,14 @@ load_dotenv()
 
 # --- 設定ファイルを安全に読み込む ---
 def load_config():
-    """config.yamlをUTF-8で読み込み、invoke.Configオブジェクトを返す"""
+    """config.yamlをUTF-8で読み込み、属性アクセス可能なオブジェクトを返す"""
     try:
         with open("config.yaml", encoding="utf-8") as f:
-            # invoke.Configを使うことで、既存コードへの影響を最小限にする
-            return Config(yaml.safe_load(f))
+            config_dict = yaml.safe_load(f)
+            # 辞書を再帰的にSimpleNamespaceに変換して属性アクセスを可能にする
+            return json.loads(
+                json.dumps(config_dict), object_hook=lambda d: SimpleNamespace(**d)
+            )
     except FileNotFoundError:
         logger.error("❌ [エラー] 設定ファイル 'config.yaml' が見つかりません。")
         sys.exit(1)
@@ -48,8 +52,8 @@ def task_server():
 
     logger.info("✅ 設定を読み込み、Webサーバーを初期化します。")
     load_config_and_init()  # server.py内の初期化関数を呼び出し
-    logger.info("🚀 Webサーバーを http://0.0.0.0:8000 で起動します。")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("🚀 Webサーバーを http://localhost:8000 で起動します。")
+    uvicorn.run(app, host="localhost", port=8000)
 
 
 def task_tts_list(args):
@@ -76,6 +80,8 @@ def task_tts_test(args):
     engine = args.engine.lower()
     text_to_synthesize = args.text
 
+    tts_instance = None
+    tts_config = None
     if engine == "voicevox":
         from src.tts.voicevox import VoiceVox
 
@@ -96,7 +102,8 @@ def task_tts_test(args):
         sys.exit(1)
 
     logger.info(f"🎤 {engine.upper()}で音声合成をテストします: '{text_to_synthesize}'")
-    data, sr = tts_instance.synthesize(text_to_synthesize, **tts_config)
+    # SimpleNamespaceをvars()で辞書に変換してから展開
+    data, sr = tts_instance.synthesize(text_to_synthesize, **vars(tts_config))
     sd.play(data, sr)
     sd.wait()
     logger.info("✅ 音声合成テストが完了しました。")
@@ -113,15 +120,18 @@ def task_asr_test(args):
     if engine == "whisper":
         from src.asr.whisper_asr import WhisperASR
 
-        asr_instance = WhisperASR(**config.whisper, **config.webrtcvad)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr_instance = WhisperASR(**vars(config.whisper), **vars(config.webrtcvad))
     elif engine == "vosk":
         from src.asr.vosk_asr import VoskASR
 
-        asr_instance = VoskASR(**config.vosk)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr_instance = VoskASR(**vars(config.vosk))
     elif engine == "gemini":
         from src.asr.gemini_asr import GeminiASR
 
-        asr_instance = GeminiASR(config.gemini.model, **config.webrtcvad)
+        # SimpleNamespaceをvars()で辞書に変換してから展開
+        asr_instance = GeminiASR(config.gemini.model, **vars(config.webrtcvad))
     else:
         logger.error(f"❌ [エラー] 未知のASRエンジン: {engine}")
         sys.exit(1)

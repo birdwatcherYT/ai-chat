@@ -50,6 +50,6 @@ http://localhost:8000/ へアクセス
 
 # フォーマット
 ```sh
-uv run ruff format .
-uv run ruff check --fix .
+uv run ruff format
+uv run ruff check --fix
 ```

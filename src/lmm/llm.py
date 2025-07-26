@@ -16,15 +16,14 @@ class LLMs:
         self.llmcfg = llmcfg
         # LLMの選択と初期化
         if self.llmcfg.model_engine == "ollama":
-            self.llm = ChatOllama(**llmcfg.ollama)
+            self.llm = ChatOllama(**vars(llmcfg.ollama))
         elif self.llmcfg.model_engine == "gemini":
-            self.llm = ChatGoogleGenerativeAI(**llmcfg.gemini)
+            self.llm = ChatGoogleGenerativeAI(**vars(llmcfg.gemini))
         elif self.llmcfg.model_engine == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY")
             self.llm = ChatOpenAI(
-                model=llmcfg.openrouter.model,
+                **vars(llmcfg.openrouter),
                 openai_api_key=api_key,
-                openai_api_base=llmcfg.openrouter.base_url,
             )
 
         self.speaker_prompt_template = self.get_speaker_prompt_template()
@@ -34,19 +33,19 @@ class LLMs:
         # PromptTemplateの定義（from_templateで記述、input_variables/partial_variablesは省略）
         prompt = PromptTemplate.from_template(
             """次に発話するべき話者名を出力してください。
-    # 出力候補
-    ```json
-    {char_names}
-    ```
-    # キャラクター情報
-    {user_name}
-    {user_character}
-    {chara_prompt}
-    # 会話履歴
-    ```json
-    {messages}
-    ```
-    """,
+# 出力候補
+```json
+{char_names}
+```
+# キャラクター情報
+{user_name}
+{user_character}
+{chara_prompt}
+# 会話履歴
+```json
+{messages}
+```
+""",
             partial_variables={
                 "user_name": self.llmcfg.user_name,
                 "user_character": self.llmcfg.user_character,
@@ -89,15 +88,15 @@ class LLMs:
     def get_utter_chain(self):
         utter_prompt_template = PromptTemplate.from_template(
             """**会話履歴**に続く{speaker}の次の発言を生成してください。発話内容だけを出力してください。
-    # キャラクター情報
-    {user_name}
-    {user_character}
-    {chara_prompt}
-    # 会話履歴
-    ```json
-    {messages}
-    ```
-    """,
+# キャラクター情報
+{user_name}
+{user_character}
+{chara_prompt}
+# 会話履歴
+```json
+{messages}
+```
+""",
             partial_variables={
                 "user_name": self.llmcfg.user_name,
                 "user_character": self.llmcfg.user_character,
