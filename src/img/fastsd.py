@@ -8,8 +8,8 @@ from io import BytesIO
 import requests
 from PIL import Image
 
-from ..lmm.common import history_to_text
-from ..lmm.llm import LLMs
+from ..llm.common import history_to_text
+from ..llm.llm import LLMs
 from ..logger import get_logger
 from .base import ImageGenerator
 

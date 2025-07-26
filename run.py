@@ -158,8 +158,8 @@ def task_asr_test(args):
 
 def task_img_gen(args):
     """指定されたエンジンで画像を生成します"""
-    from src.lmm.common import LLMConfig
-    from src.lmm.llm import LLMs
+    from src.llm.common import LLMConfig
+    from src.llm.llm import LLMs
     from src.utils import open_image
 
     config = load_config()

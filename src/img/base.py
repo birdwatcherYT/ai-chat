@@ -3,7 +3,7 @@ import time
 
 from PIL import Image
 
-from ..lmm.llm import LLMs
+from ..llm.llm import LLMs
 from ..logger import get_logger
 
 logger = get_logger(__name__, level="INFO")

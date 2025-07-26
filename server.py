@@ -15,8 +15,8 @@ from pydub import AudioSegment
 from src.img.base import ImageGenerator
 from src.img.fastsd import FastSD
 from src.img.gemini_img import GeminiImg
-from src.lmm.common import LLMConfig, history_to_text
-from src.lmm.llm import LLMs
+from src.llm.common import LLMConfig, history_to_text
+from src.llm.llm import LLMs
 from src.logger import get_logger
 from src.tts.aivisspeech import AivisSpeech
 from src.tts.coeiroink import CoeiroInk
