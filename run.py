@@ -55,7 +55,7 @@ def task_tts_list(args):
         sys.exit(1)
 
 
-def task_tts_test(args):
+def task_tts(args):
     """指定されたTTSエンジンで音声合成をテストします"""
     import sounddevice as sd
 
@@ -92,7 +92,7 @@ def task_tts_test(args):
     logger.info("✅ 音声合成テストが完了しました。")
 
 
-def task_asr_test(args):
+def task_asr(args):
     """指定されたASRエンジンで音声認識をテストします"""
     config = load_config()
     engine = args.engine.lower()
@@ -144,6 +144,11 @@ def task_img_gen(args):
     config = load_config()
     llmcfg = LLMConfig(config)
     llms = LLMs(llmcfg)
+    common_args = {
+        "llms": llms,
+        "save_dir": config.chat.image.save_dir,
+        "url_path": config.chat.image.url_path,
+    }
 
     engine = args.engine.lower()
     logger.info(f"🎨 {engine}で画像生成を開始します: '{args.prompt}'")
@@ -151,18 +156,18 @@ def task_img_gen(args):
     if engine == "fastsd":
         from src.img.fastsd import FastSD, GenerationSettings
 
-        client = FastSD(llms, **vars(config.fastsd))
+        client = FastSD(**common_args, **vars(config.fastsd))
         settings = GenerationSettings(prompt=args.prompt)
         _, save_path = client._generate_image(settings)
     elif engine == "gemini_image":
         from src.img.gemini_img import GeminiImg
 
-        img_generator = GeminiImg(llms, **vars(config.gemini_image))
+        img_generator = GeminiImg(**common_args, **vars(config.gemini_image))
         _, save_path = img_generator._generate_image(prompt=args.prompt)
     elif engine == "mock":
         from src.img.base import ImageGenerator
 
-        img_generator = ImageGenerator(llms)
+        img_generator = ImageGenerator(**common_args)
         _, save_path = img_generator.generate_image([])
     else:
         logger.error(f"❌ [エラー] 未知の画像生成エンジン: {engine}")
@@ -192,57 +197,49 @@ if __name__ == "__main__":
         "tts-list", help="指定されたTTSエンジンの話者一覧を表示します"
     )
     parser_tts_list.add_argument(
-        "--engine",
+        "engine",
         type=str,
         choices=["voicevox", "coeiroink", "aivisspeech"],
-        required=True,
         help="話者一覧を表示するTTSエンジン (voicevox, coeiroink, aivisspeech)",
     )
     parser_tts_list.set_defaults(func=task_tts_list)
 
     # tts-test タスク
-    parser_tts_test = subparsers.add_parser(
+    parser_tts = subparsers.add_parser(
         "tts-test", help="指定されたTTSエンジンで音声合成をテストします"
     )
-    parser_tts_test.add_argument("text", type=str, help="合成するテキスト")
-    parser_tts_test.add_argument(
-        "--engine",
+    parser_tts.add_argument(
+        "engine",
         type=str,
         choices=["voicevox", "coeiroink", "aivisspeech"],
-        required=True,
         help="テストするTTSエンジン (voicevox, coeiroink, aivisspeech)",
     )
-    parser_tts_test.set_defaults(func=task_tts_test)
+    parser_tts.add_argument("text", type=str, help="合成するテキスト")
+    parser_tts.set_defaults(func=task_tts)
 
     # asr-test タスク
-    parser_asr_test = subparsers.add_parser(
+    parser_asr = subparsers.add_parser(
         "asr-test", help="指定されたASRエンジンで音声認識をテストします"
     )
-    parser_asr_test.add_argument(
-        "--engine",
+    parser_asr.add_argument(
+        "engine",
         type=str,
         choices=["whisper", "vosk", "gemini"],
-        required=True,
         help="テストするASRエンジン (whisper, vosk, gemini)",
     )
-    parser_asr_test.add_argument(
-        "--loop", action="store_true", help="連続して認識を行う"
-    )
-    parser_asr_test.set_defaults(func=task_asr_test)
+    parser_asr.add_argument("--loop", action="store_true", help="連続して認識を行う")
+    parser_asr.set_defaults(func=task_asr)
 
     # image-gen タスク
-    parser_image = subparsers.add_parser("img-gen", help="AIで画像を生成します")
-    parser_image.add_argument(
-        "--engine",
+    parser_img_gen = subparsers.add_parser("img-gen", help="AIで画像を生成します")
+    parser_img_gen.add_argument(
+        "engine",
         type=str,
         choices=["fastsd", "gemini_image", "mock"],
-        required=True,
         help="使用する画像生成エンジン (fastsd, gemini_image, mock)",
     )
-    parser_image.add_argument(
-        "--prompt", type=str, required=True, help="画像生成のためのプロンプト"
-    )
-    parser_image.set_defaults(func=task_img_gen)
+    parser_img_gen.add_argument("prompt", type=str, help="画像生成のためのプロンプト")
+    parser_img_gen.set_defaults(func=task_img_gen)
 
     # 引数を解析して対応する関数を実行
     args = parser.parse_args()

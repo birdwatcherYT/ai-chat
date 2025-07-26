@@ -14,6 +14,7 @@ AIチャット
     - [AivisSpeech](https://aivis-project.com/)をインストール
 - 音声認識を使う場合
     - [VOSK Models](https://alphacephei.com/vosk/models)から`vosk-model-ja-0.22`をDLして展開
+        - `uv sync --extra windows` (Windowsのみ)
     - whisperを使う場合は設定不要（初回に自動ダウンロードされます）
     - geminiを使う場合は前述のAPIキーの設定のみ
 - 画像生成を使う場合
@@ -22,19 +23,14 @@ AIチャット
 - `config.yaml`を環境に合わせる
     - LLMモデルの確認
     - 合成したいキャラクターのIDを確認
-        - VOICEVOX: ` uv run python run.py tts-list --engine voicevox`（VOICEVOX GUI起動後）
-        - COEIROINK: `uv run python run.py tts-list --engine coeiroink`（COEIROINK GUI起動後）
-        - AivisSpeech: `uv run python run.py tts-list --engine aivisspeech`（AivisSpeech GUI起動後）
+        - VOICEVOX: `uv run python run.py tts-list voicevox`（VOICEVOX GUI起動後）
+        - COEIROINK: `uv run python run.py tts-list coeiroink`（COEIROINK GUI起動後）
+        - AivisSpeech: `uv run python run.py tts-list aivisspeech`（AivisSpeech GUI起動後）
     - voskモデルへのパスを確認
 
 ### Windows対応
 - uv sync時のbuildエラー
     - visual studio build tools 2022でC++によるデスクトップ開発（MSVC、Windows11 SDK、CMake）をインストールしてからリトライ
-
-### Mac対応
-- uv sync時のvoskのエラー
-    - pyproject.tomlからvoskを削除してからuv.sync
-
 
 ## 使い方
 音声合成を使う場合、裏でGUIを起動しておく

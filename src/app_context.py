@@ -84,12 +84,18 @@ class AppContext:
     def _init_image_generator(self) -> ImageGenerator:
         """設定に基づいて画像生成エンジンを初期化する"""
         image_model = self.cfg.chat.image.model
+        common_args = {
+            "llms": self.llms,
+            "save_dir": self.cfg.chat.image.save_dir,
+            "url_path": self.cfg.chat.image.url_path,
+        }
+
         if image_model == "fastsd":
-            return FastSD(self.llms, **vars(self.cfg.fastsd))
+            return FastSD(**common_args, **vars(self.cfg.fastsd))
         if image_model == "gemini_image":
-            return GeminiImg(self.llms, **vars(self.cfg.gemini_image))
+            return GeminiImg(**common_args, **vars(self.cfg.gemini_image))
         # デフォルトまたはmockの場合
-        return ImageGenerator(self.llms)
+        return ImageGenerator(**common_args)
 
     def _init_asr_engine(self) -> SpeechToText | None:
         """設定に基づいて音声認識エンジンを初期化する"""

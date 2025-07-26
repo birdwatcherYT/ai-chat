@@ -15,8 +15,6 @@ from src.app_context import AppContext, load_config
 from src.llm.common import history_to_text
 from src.logger import get_logger
 
-GENERATED_IMAGES_DIR = "generated_images"
-GENERATED_IMAGES_URL_PATH = "/images"
 load_dotenv()
 logger = get_logger(__name__, level="INFO")
 
@@ -38,6 +36,14 @@ def load_config_and_init():
         config = load_config()
         ctx = AppContext(config)
         history = list(ctx.initial_history)  # 初期履歴をコピー
+
+        app.mount(
+            ctx.cfg.chat.image.url_path,
+            StaticFiles(directory=ctx.cfg.chat.image.save_dir),
+            name="images",
+        )
+        app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+
         logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
     except Exception as e:
         logger.error(f"❌ [SYSTEM] 初期化エラー: {e}")
@@ -291,14 +297,6 @@ async def websocket_endpoint(websocket: WebSocket):
         traceback.print_exc()
     finally:
         manager.disconnect(websocket)
-
-
-app.mount(
-    GENERATED_IMAGES_URL_PATH,
-    StaticFiles(directory=GENERATED_IMAGES_DIR),
-    name="images",
-)
-app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 
 @app.get("/")

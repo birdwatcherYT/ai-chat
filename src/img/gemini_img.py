@@ -15,8 +15,8 @@ logger = get_logger(__name__, level="INFO")
 
 
 class GeminiImg(ImageGenerator):
-    def __init__(self, llms: LLMs, model: str):
-        super().__init__(llms)
+    def __init__(self, llms: LLMs, save_dir: str, url_path: str, model: str):
+        super().__init__(llms, save_dir, url_path)
         self.client = genai.Client()
         self.model = model
 

@@ -30,8 +30,12 @@ dependencies = [
     { name = "soundfile" },
     { name = "streamlit" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "vosk" },
     { name = "webrtcvad" },
+]
+
+[package.optional-dependencies]
+windows = [
+    { name = "vosk" },
 ]
 
 [package.dev-dependencies]
@@ -59,9 +63,10 @@ requires-dist = [
     { name = "soundfile", specifier = ">=0.13.1" },
     { name = "streamlit", specifier = ">=1.47.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
-    { name = "vosk", specifier = ">=0.3.45" },
+    { name = "vosk", marker = "extra == 'windows'", specifier = ">=0.3.45" },
     { name = "webrtcvad", specifier = ">=2.0.10" },
 ]
+provides-extras = ["windows"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.12.5" }]

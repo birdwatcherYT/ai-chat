@@ -15,9 +15,10 @@ class ImageGenerator:
     def __init__(
         self,
         llms: LLMs,
-        save_dir: str = "generated_images",
-        url_path: str = "/images",
+        save_dir: str,
+        url_path: str,
     ):
+        os.makedirs(save_dir, exist_ok=True)
         self.save_dir = save_dir
         self.url_path = url_path
         self.last_image: Image.Image = None

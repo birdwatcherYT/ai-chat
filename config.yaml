@@ -43,6 +43,9 @@ chat:
     model: fastsd # mock, gemini_image, fastsd
     edit: false # 画像編集モード
     interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
+
+    save_dir: "generated_images" # 生成された画像の保存先ディレクトリ
+    url_path: "/images" # Webサーバー経由で画像にアクセスするためのURLパス
   llm_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
 
 # LLM

@@ -39,8 +39,8 @@ class GenerationSettings:
 class FastSD(ImageGenerator):
     """Stable Diffusion APIクライアント"""
 
-    def __init__(self, llms: LLMs, base_url: str):
-        super().__init__(llms)
+    def __init__(self, save_dir: str, url_path: str, llms: LLMs, base_url: str):
+        super().__init__(llms, save_dir, url_path)
         self.server_url = base_url
 
     def _generate_image(self, settings: GenerationSettings) -> tuple[str, str] | None:
