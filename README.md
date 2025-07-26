@@ -20,9 +20,9 @@ AIチャット
 - `config.yaml`を環境に合わせる
     - LLMモデルの確認
     - 合成したいキャラクターのIDを確認
-        - VOICEVOX: `uv run python run.py vv-list`（VOICEVOX GUI起動後）
-        - COEIROINK: `uv run python run.py ci-list`（COEIROINK GUI起動後）
-        - AivisSpeech: `uv run python run.py as-list`（AivisSpeech GUI起動後）
+        - VOICEVOX: ` uv run python run.py tts-list --engine voicevox`（VOICEVOX GUI起動後）
+        - COEIROINK: `uv run python run.py tts-list --engine coeiroink`（COEIROINK GUI起動後）
+        - AivisSpeech: `uv run python run.py tts-list --engine aivisspeech`（AivisSpeech GUI起動後）
     - voskモデルへのパスを確認
 
 ### Windows対応
@@ -35,8 +35,18 @@ AIチャット
 
 
 ## 使い方
-1. 音声合成を使う場合、裏でGUIを起動しておく
-2. `uv run python run.py chat`
+音声合成を使う場合、裏でGUIを起動しておく
+
+### CLI
+```sh
+uv run python run.py chat
+```
+
+### GUI
+```sh
+uv run python run.py server
+```
+http://localhost:8000/ へアクセス
 
 # フォーマット
 ```sh
