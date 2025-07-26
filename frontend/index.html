@@ -30,6 +30,7 @@
         let audioQueue = [], isPlaying = false, currentAiMessageElement = null, userName = "U";
         let mediaRecorder, audioChunks = [], stream, analyser, dataArray, silenceTimer, isSpeaking = false, animationFrameId;
         let isContinuousMode = false;
+        let aiTurnFinished = true; // AIのターンが完了したかを追跡するフラグ
 
         const VAD_THRESHOLD = 0.02;
         const SILENCE_DURATION_MS = 1500;
@@ -44,114 +45,123 @@
             
             switch (message.type) {
                 case 'history': append_message(message.data.name, message.data.content); break;
-                // --- START: BUG FIX ---
                 case 'user_transcription':
-                    remove_status('audio-processing'); // 解析中ステータスを消す
+                    remove_status('audio-processing');
                     if (message.data && message.data.trim()) {
-                        // 文字起こし成功
-                        append_message(userName, message.data, true); // 認識結果を確定表示
+                        append_message(userName, message.data, true);
                         update_status('speaker-decision', '＞ 次の話者を決めています...');
                     } else {
-                        // 文字起こし失敗（結果が空）
-                        update_status('asr-failed', '音声を認識できませんでした。', 2000); // 2秒で消えるメッセージを表示
+                        update_status('asr-failed', '音声を認識できませんでした。', 2000);
                         if (isContinuousMode) {
-                            setTimeout(startRecording, 100); // 常時モードなら少し待ってから再開
+                            setTimeout(startRecording, 100);
                         } else {
-                            enable_input(); // 手動モードなら入力を有効化
+                            enable_input();
                         }
                     }
                     break;
                 case 'next_speaker':
+                    aiTurnFinished = false; // AIのターン開始
                     remove_status('speaker-decision');
-                    remove_status('asr-failed'); // 念のため認識失敗メッセージも消す
+                    remove_status('asr-failed');
                     update_status('ai_thinking', `＞ ${message.data}が発言を考えています...`);
                     if (message.data !== userName) currentAiMessageElement = append_message(message.data, '');
                     break;
-                // --- END: BUG FIX ---
                 case 'chunk': update_ai_message(message.data.content); break;
-                case 'audio': audioQueue.push(message.data); play_from_queue(); break;
+                // --- ここからが修正箇所 ---
+                case 'audio':
+                    audioQueue.push(message.data);
+                    if (!isPlaying) {
+                        play_from_queue();
+                    }
+                    break;
+                case 'stream_end':
+                    finish_ai_turn();
+                    break;
+                // --- ここまでが修正箇所 ---
                 case 'image': append_image(message.url); break;
                 case 'status_update': update_status(message.data.id, message.data.text); break;
                 case 'status_remove': remove_status(message.data.id); break;
-                case 'stream_end': finish_ai_turn(); break;
             }
         };
         
-        // --- START: BUG FIX ---
-        // update_status関数にタイムアウト機能を追加
-        const update_status = (id, text, timeout = 0) => {
-            let el = document.getElementById(id);
-            if (!el) {
-                el = document.createElement('div');
-                el.id = id;
-                el.className = 'status-item';
-                statusArea.appendChild(el);
-            }
-            el.textContent = text;
-            if (timeout > 0) {
-                setTimeout(() => {
-                    if (el) el.remove();
-                }, timeout);
-            }
-        };
-        // --- END: BUG FIX ---
+        const update_status = (id, text, timeout = 0) => { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.className = 'status-item'; statusArea.appendChild(el); } el.textContent = text; if (timeout > 0) { setTimeout(() => { if (el) el.remove(); }, timeout); } };
         const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
         const clear_all_status = () => { statusArea.innerHTML = ''; };
 
-        const enable_input = (isManual = true) => {
-            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false;
-            if (!isContinuousMode || isManual) { update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); }
-        };
-        const disable_input = (isError = false) => {
-            messageInput.disabled = true; sendButton.disabled = true;
-            if (!isError) micButton.disabled = false;
-        };
+        const enable_input = (isManual = true) => { messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; if (!isContinuousMode || isManual) { update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); } };
+        const disable_input = (isError = false) => { messageInput.disabled = true; sendButton.disabled = true; if (!isError) micButton.disabled = false; };
 
         const append_message = (name, text, isFinal = false) => { if (isFinal) { remove_status('temp-user-message'); } const el = document.createElement('div'); el.classList.add('message', name === userName ? 'user-message' : 'ai-message'); el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; return el; };
         const append_temp_message = (text) => { update_status('temp-user-message', text); };
         const update_ai_message = (chunk) => { if (currentAiMessageElement) { currentAiMessageElement.querySelector('p').textContent += chunk; chatBox.scrollTop = chatBox.scrollHeight; } };
         const append_image = (url) => { const el = document.createElement('div'); el.classList.add('message', 'image-message'); el.innerHTML = `<img src="${url}" alt="Generated Image" onload="() => { chatBox.scrollTop = chatBox.scrollHeight; }">`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; };
         
+        // --- ここからが修正箇所 ---
         const finish_ai_turn = () => {
             currentAiMessageElement = null;
             remove_status('ai_thinking');
-            if (isContinuousMode) {
-                startRecording();
-            } else {
-                enable_input();
-            }
-        };
-        
-        const play_from_queue = () => { if (isPlaying || audioQueue.length === 0) return; isPlaying = true; const { audio, samplerate, dtype } = audioQueue.shift(); const rawAudio = atob(audio); const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer); for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i); let float32Array; if (dtype === 'int16') { const i16 = new Int16Array(buffer); float32Array = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) float32Array[i] = i16[i] / 32768.0; } else if (dtype === 'float32') { float32Array = new Float32Array(buffer); } else { isPlaying = false; play_from_queue(); return; } const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate); audioBuffer.copyToChannel(float32Array, 0); const source = audioContext.createBufferSource(); source.buffer = audioBuffer; source.connect(audioContext.destination); source.onended = () => { isPlaying = false; play_from_queue(); }; source.start(); };
-        
-        const sendMessage = () => { const message = messageInput.value; if (message && !messageInput.disabled) { ws.send(JSON.stringify({text: message})); append_message(userName, message); messageInput.value = ''; disable_input(); clear_all_status(); update_status('speaker-decision', '＞ 次の話者を決めています...'); } };
-        
-        const startVAD = () => {
-            const source = audioContext.createMediaStreamSource(stream);
-            analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.5;
-            dataArray = new Uint8Array(analyser.frequencyBinCount);
-            source.connect(analyser);
-            detectSpeech();
-        };
-
-        const detectSpeech = () => {
-            if (!mediaRecorder || mediaRecorder.state !== "recording") { cancelAnimationFrame(animationFrameId); return; };
-            animationFrameId = requestAnimationFrame(detectSpeech);
-            analyser.getByteTimeDomainData(dataArray);
-            let sum = 0.0; for (const x of dataArray) { sum += Math.abs(x / 128.0 - 1.0); }
-            const avg = sum / dataArray.length;
-            if (avg > VAD_THRESHOLD) {
-                if (!isSpeaking) { isSpeaking = true; append_temp_message('...聞いています...'); }
-                clearTimeout(silenceTimer); silenceTimer = null;
-            } else if (isSpeaking) {
-                if (!silenceTimer) {
-                    silenceTimer = setTimeout(() => { stopRecording(); }, SILENCE_DURATION_MS);
+            aiTurnFinished = true;
+            // 再生中でなければ、この時点でマイクをONにする
+            if (!isPlaying) {
+                if (isContinuousMode) {
+                    startRecording();
+                } else {
+                    enable_input();
                 }
             }
         };
+        
+        const play_from_queue = () => {
+            if (audioQueue.length === 0) {
+                isPlaying = false;
+                // AIのターンも終わっているならマイクをON
+                if (aiTurnFinished) {
+                    if (isContinuousMode) { startRecording(); } else { enable_input(); }
+                }
+                return;
+            }
+
+            // 再生が始まる瞬間にマイクをミュート
+            if (!isPlaying && isContinuousMode && stream) {
+                stream.getAudioTracks().forEach(track => track.enabled = false);
+                console.log("🎤 Mic Muted by AI speech");
+            }
+            isPlaying = true;
+
+            const { audio, samplerate, dtype } = audioQueue.shift();
+            // (デコード処理)
+            const rawAudio = atob(audio); const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer); for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i); let float32Array; if (dtype === 'int16') { const i16 = new Int16Array(buffer); float32Array = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) float32Array[i] = i16[i] / 32768.0; } else if (dtype === 'float32') { float32Array = new Float32Array(buffer); } else { isPlaying = false; play_from_queue(); return; } const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate); audioBuffer.copyToChannel(float32Array, 0);
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.onended = () => {
+                // 再生が終わったら、キューの次のアイテムを再生
+                isPlaying = false;
+                play_from_queue();
+            };
+            source.start();
+        };
+        // --- ここまでが修正箇所 ---
+        
+        const sendMessage = () => { const message = messageInput.value; if (message && !messageInput.disabled) { ws.send(JSON.stringify({text: message})); append_message(userName, message); messageInput.value = ''; disable_input(); clear_all_status(); update_status('speaker-decision', '＞ 次の話者を決めています...'); } };
+        
+        const startVAD = () => { const source = audioContext.createMediaStreamSource(stream); analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.5; dataArray = new Uint8Array(analyser.frequencyBinCount); source.connect(analyser); detectSpeech(); };
+        const detectSpeech = () => { if (!mediaRecorder || mediaRecorder.state !== "recording") { cancelAnimationFrame(animationFrameId); return; }; animationFrameId = requestAnimationFrame(detectSpeech); analyser.getByteTimeDomainData(dataArray); let sum = 0.0; for (const x of dataArray) { sum += Math.abs(x / 128.0 - 1.0); } const avg = sum / dataArray.length; if (avg > VAD_THRESHOLD) { if (!isSpeaking) { isSpeaking = true; append_temp_message('...聞いています...'); } clearTimeout(silenceTimer); silenceTimer = null; } else if (isSpeaking) { if (!silenceTimer) { silenceTimer = setTimeout(() => { stopRecording(); }, SILENCE_DURATION_MS); } } };
 
         const startRecording = async () => {
             if (mediaRecorder && mediaRecorder.state === "recording") return;
+            // --- ここからが修正箇所 ---
+            // 録音開始前に必ずマイクを有効化する
+            if (stream) {
+                stream.getAudioTracks().forEach(track => {
+                    if (!track.enabled) {
+                        track.enabled = true;
+                        console.log("🎤 Mic Unmuted for recording");
+                    }
+                });
+            }
+            // --- ここまでが修正箇所 ---
             try {
                 if (audioContext.state === 'suspended') { await audioContext.resume(); }
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -166,10 +176,9 @@
                         clear_all_status();
                         update_status('audio-processing', '🔊 音声解析中...');
                     } else {
-                        // 録音データが小さすぎる場合（クリックノイズなど）
                         remove_status('temp-user-message');
                         if (isContinuousMode) {
-                            startRecording(); // 即座に再開
+                            startRecording();
                         } else {
                             enable_input();
                         }
@@ -184,7 +193,7 @@
 
         const stopRecording = () => {
             if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); }
-            if (stream) { stream.getTracks().forEach(track => track.stop()); }
+            if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
             if (animationFrameId) { cancelAnimationFrame(animationFrameId); }
             micButton.classList.remove('recording');
             micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
@@ -195,7 +204,7 @@
             isContinuousMode = !isContinuousMode;
             micButton.classList.toggle('continuous-mode', isContinuousMode);
             if (isContinuousMode) {
-                if (!micButton.classList.contains('recording')) {
+                if (!micButton.classList.contains('recording') && !isPlaying) {
                     startRecording();
                 }
             } else {
@@ -207,7 +216,6 @@
         };
 
         sendButton.onclick = sendMessage;
-        // 修正: ws.sendはJSON形式の文字列を送るようにする
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage() });
     </script>
 </body>
