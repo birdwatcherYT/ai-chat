@@ -52,8 +52,8 @@ def task_server():
 
     logger.info("✅ 設定を読み込み、Webサーバーを初期化します。")
     load_config_and_init()  # server.py内の初期化関数を呼び出し
-    logger.info("🚀 Webサーバーを http://localhost:8000 で起動します。")
-    uvicorn.run(app, host="localhost", port=8000)
+    logger.info("🚀 Webサーバーを http://localhost:5000 で起動します。")
+    uvicorn.run(app, host="localhost", port=5000)
 
 
 def task_tts_list(args):
@@ -118,7 +118,7 @@ def task_asr_test(args):
     config = load_config()
     engine = args.engine.lower()
 
-    logger.info(f"👂 {engine.upper()}で音声認識を開始します。")
+    logger.info(f"👂 {engine}で音声認識を開始します。")
 
     asr_instance = None
     if engine == "whisper":
@@ -154,6 +154,43 @@ def task_asr_test(args):
     else:
         print(asr_instance.audio_input())
     logger.info("✅ 音声認識テストが完了しました。")
+
+
+def task_img_gen(args):
+    """指定されたエンジンで画像を生成します"""
+    from src.lmm.common import LLMConfig
+    from src.lmm.llm import LLMs
+    from src.utils import open_image
+
+    config = load_config()
+    llmcfg = LLMConfig(config)
+    llms = LLMs(llmcfg)
+
+    engine = args.engine.lower()
+    logger.info(f"🎨 {engine}で画像生成を開始します: '{args.prompt}'")
+
+    if engine == "fastsd":
+        from src.img.fastsd import FastSD, GenerationSettings
+
+        client = FastSD(llms, **vars(config.fastsd))
+        settings = GenerationSettings(prompt=args.prompt)
+        _, save_path = client._generate_image(settings)
+    elif engine == "gemini_image":
+        from src.img.gemini_img import GeminiImg
+
+        img_generator = GeminiImg(llms, **vars(config.gemini_image))
+        _, save_path = img_generator._generate_image(prompt=args.prompt)
+    elif engine == "mock":
+        from src.img.base import ImageGenerator
+
+        img_generator = ImageGenerator(llms)
+        _, save_path = img_generator.generate_image([])
+    else:
+        logger.error(f"❌ [エラー] 未知の画像生成エンジン: {engine}")
+        sys.exit(1)
+
+    open_image(save_path)
+    logger.info("✅ 画像生成が完了しました。")
 
 
 # --- コマンドライン引数の解析とディスパッチ ---
@@ -213,6 +250,20 @@ if __name__ == "__main__":
         "--loop", action="store_true", help="連続して認識を行う"
     )
     parser_asr_test.set_defaults(func=task_asr_test)
+
+    # image-gen タスク
+    parser_image = subparsers.add_parser("img-gen", help="AIで画像を生成します")
+    parser_image.add_argument(
+        "--engine",
+        type=str,
+        choices=["fastsd", "gemini_image", "mock"],
+        required=True,
+        help="使用する画像生成エンジン (fastsd, gemini_image, mock)",
+    )
+    parser_image.add_argument(
+        "--prompt", type=str, required=True, help="画像生成のためのプロンプト"
+    )
+    parser_image.set_defaults(func=task_img_gen)
 
     # 引数を解析して対応する関数を実行
     args = parser.parse_args()

@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import json
-import os
 import traceback
 from io import BytesIO
 from types import SimpleNamespace
@@ -13,27 +12,29 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
+from src.img.base import ImageGenerator
+from src.img.fastsd import FastSD
+from src.img.gemini_img import GeminiImg
 from src.lmm.common import LLMConfig, history_to_text
-from src.lmm.img import ImageGenerator
 from src.lmm.llm import LLMs
 from src.logger import get_logger
 from src.tts.aivisspeech import AivisSpeech
 from src.tts.coeiroink import CoeiroInk
 from src.tts.voicevox import VoiceVox
 
+GENERATED_IMAGES_DIR = "generated_images"
+GENERATED_IMAGES_URL_PATH = "/images"
 load_dotenv()
 logger = get_logger(__name__, level="INFO")
 
 app = FastAPI()
-cfg, llmcfg, llms, engines, ai_config, history, image_generator, asr_engine = [None] * 8
-GENERATED_IMAGES_DIR = "generated_images"
-GENERATED_IMAGES_URL_PATH = "/images"
+cfg, llmcfg, llms, engines, ai_config, history, img_generator, asr_engine = [None] * 8
 llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
 
 
 def load_config_and_init():
-    global cfg, llmcfg, llms, engines, ai_config, history, image_generator, asr_engine
+    global cfg, llmcfg, llms, engines, ai_config, history, img_generator, asr_engine
     try:
         with open("config.yaml", encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
@@ -42,10 +43,16 @@ def load_config_and_init():
             )
         llmcfg = LLMConfig(cfg)
         llms = LLMs(llmcfg)
-        os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
-        image_generator = ImageGenerator(
-            llmcfg, llms, GENERATED_IMAGES_DIR, GENERATED_IMAGES_URL_PATH
-        )
+
+        image_model = cfg.chat.image.model
+        img_generator = None
+        if image_model == "fastsd":
+            img_generator = FastSD(llms, **vars(cfg.fastsd))
+        elif image_model == "gemini_image":
+            img_generator = GeminiImg(llms, **vars(cfg.gemini_image))
+        elif image_model == "mock":
+            img_generator = ImageGenerator(llms)
+
         engines = {
             "voicevox": VoiceVox(),
             "coeiroink": CoeiroInk(),
@@ -194,7 +201,7 @@ async def image_generation_task(current_history):
     )
     # generate_imageは(URL, パス)のタプルを返すので、URLのみ受け取る
     image_url, _ = await asyncio.to_thread(
-        image_generator.generate_image, current_history, cfg.chat.image.edit
+        img_generator.generate_image, current_history, cfg.chat.image.edit
     )
     if image_url:
         await manager.send_json({"type": "image", "url": image_url})

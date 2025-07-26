@@ -40,6 +40,7 @@ chat:
   initial_turn: "{user_name}"
   streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
+    model: fastsd # mock, gemini_image, fastsd
     edit: false # 画像編集モード
     interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
   llm_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
@@ -57,11 +58,15 @@ openrouter:
   model: deepseek/deepseek-chat-v3-0324:free # 使用するOpenRouterモデル名
   base_url: https://openrouter.ai/api/v1 # OpenRouter APIのベースURL
 
-image:
+# Image
+gemini_image:
   model: gemini-2.0-flash-preview-image-generation
-  mock: true
 
-vosk: # 音声認識のモデルへのパス
+fastsd:
+  base_url: http://localhost:8000
+
+# ASR
+vosk:
   model_dir: ./vosk-model-ja-0.22
 
 whisper:
@@ -74,7 +79,7 @@ webrtcvad:
   hangover_threshold: 25
   pre_buffer_frames: 50
 
-# テスト用
+# テスト用 TTS
 voicevox:
   speaker_id: 62
 

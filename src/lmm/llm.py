@@ -88,12 +88,13 @@ class LLMs:
 
     def get_situation_chain(self):
         prompt = PromptTemplate.from_template(
-            """**会話履歴**を元に今の状況を表す説明を出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
+            """**会話履歴**を元に今の状況を表す説明を**英語**で出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
 # キャラクター情報
 {user_name}
 {user_character}
 {chara_prompt}
-# 会話履歴```json
+# 会話履歴
+```json
 {messages}
 ```
 """,

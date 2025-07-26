@@ -19,7 +19,6 @@ class LLMConfig:
         )
 
         self.gemini = cfg.gemini
-        self.image = cfg.image
         self.ollama = cfg.ollama
         self.openrouter = cfg.openrouter
         self.llm_engine = cfg.chat.llm_engine

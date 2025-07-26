@@ -1,8 +1,6 @@
 import asyncio
 import os
-import platform
 import random
-import subprocess
 from collections.abc import Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -11,14 +9,17 @@ import sounddevice as sd
 from dotenv import load_dotenv
 
 from src.asr.base import SpeechToText
+from src.img.base import ImageGenerator
+from src.img.fastsd import FastSD
+from src.img.gemini_img import GeminiImg
 from src.lmm.common import LLMConfig, history_to_text
-from src.lmm.img import ImageGenerator
 from src.lmm.llm import LLMs
 from src.logger import get_logger
 from src.tts.aivisspeech import AivisSpeech
 from src.tts.base import TextToSpeech
 from src.tts.coeiroink import CoeiroInk
 from src.tts.voicevox import VoiceVox
+from src.utils import open_image
 
 load_dotenv()
 logger = get_logger(__name__, level="INFO")
@@ -29,25 +30,6 @@ def log_task(name: str, event: str, details: str = ""):
     logger.debug(f"\n>>>> LOG | Task: {name:<20} | Event: {event:<15} {details_str}")
 
 
-def open_image(image_path: str):
-    log_task("OPEN_IMAGE", "START", image_path)
-    system = platform.system()
-    if not os.path.exists(image_path):
-        logger.warning(f"⚠️ [SYSTEM] 画像ファイルが見つかりません: {image_path}")
-        return
-    try:
-        if system == "Windows":
-            subprocess.run(["start", "", image_path], check=True, shell=True)
-        elif system == "Darwin":
-            subprocess.run(["open", image_path], check=True)
-        else:
-            subprocess.run(["xdg-open", image_path], check=True)
-    except Exception as e:
-        logger.error(f"❌ [SYSTEM] 画像を開けませんでした: {e}")
-    log_task("OPEN_IMAGE", "END", image_path)
-
-
-# --- ASYNC WORKERS (一部修正) ---
 async def playback_worker(queue: asyncio.Queue):
     while True:
         data, sr = await queue.get()
@@ -123,13 +105,13 @@ class ChatState:
         llmcfg: LLMConfig,
         llms: LLMs,
         asr: SpeechToText | None,
-        image_generator: ImageGenerator,
+        img_generator: ImageGenerator,
     ):
         self.cfg = cfg
         self.llmcfg = llmcfg
         self.llms = llms
         self.asr = asr
-        self.image_generator = image_generator
+        self.img_generator = img_generator
         self.history = [
             {
                 "name": llmcfg.format(item.name),
@@ -179,7 +161,7 @@ async def chat_loop(state: ChatState):
         if len(state.history) % state.cfg.chat.image.interval == 0:
             asyncio.create_task(
                 generate_and_open_image(
-                    state.image_generator,
+                    state.img_generator,
                     list(state.history),
                     state.cfg.chat.image.edit,
                 )
@@ -221,7 +203,18 @@ async def chat_start(cfg: SimpleNamespace):
 
     llmcfg = LLMConfig(cfg)
     llms = LLMs(llmcfg)
-    image_generator = ImageGenerator(llmcfg, llms, "generated_images", "/images")
+
+    # 画像生成エンジンの初期化
+    image_model = cfg.chat.image.model
+    img_generator: ImageGenerator | None = None
+    if image_model == "fastsd":
+        img_generator = FastSD(llms, **vars(cfg.fastsd))
+    elif image_model == "gemini_image":
+        img_generator = GeminiImg(llms, **vars(cfg.gemini_image))
+    elif image_model == "mock":
+        img_generator = ImageGenerator(llms)
+
+    # 音声認識エンジンの初期化
     asr: SpeechToText | None = None
     user_input_mode = cfg.chat.user.input
     log_task("MAIN", "INIT", f"User input mode: {user_input_mode}")
@@ -241,7 +234,7 @@ async def chat_start(cfg: SimpleNamespace):
         # SimpleNamespaceをvars()で辞書に変換してから展開
         asr = GeminiASR(cfg.gemini.model, **vars(cfg.webrtcvad))
 
-    state = ChatState(cfg, llmcfg, llms, asr, image_generator)
+    state = ChatState(cfg, llmcfg, llms, asr, img_generator)
 
     engines = {
         "voicevox": VoiceVox(),

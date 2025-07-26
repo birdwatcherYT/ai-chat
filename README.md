@@ -5,9 +5,9 @@ AIチャット
 - `uv sync`
     - pythonと[uv](https://github.com/astral-sh/uv)インストール済みであることが前提
 - LLM
-    - [gemini](https://aistudio.google.com/apikey): APIキーを取得し、.envに`GOOGLE_API_KEY`を設定する
-    - [openrouter](https://openrouter.ai/): APIキーを取得し、.envに`OPENROUTER_API_KEY`を設定する 
-    - [ollama](https://ollama.com/): `ollama run gemma3`などで使うモデルをインストール
+    - [Gemini](https://aistudio.google.com/apikey): APIキーを取得し、.envに`GOOGLE_API_KEY`を設定する
+    - [Openrouter](https://openrouter.ai/): APIキーを取得し、.envに`OPENROUTER_API_KEY`を設定する 
+    - [Ollama](https://ollama.com/): `ollama run gemma3`などで使うモデルをインストール
 - 音声合成を使う場合（使うものを選択してインストール）
     - [VOICEVOX](https://voicevox.hiroshiba.jp/)をインストール
     - [COEIROINK](https://coeiroink.com/download)をインストール
@@ -16,7 +16,9 @@ AIチャット
     - [VOSK Models](https://alphacephei.com/vosk/models)から`vosk-model-ja-0.22`をDLして展開
     - whisperを使う場合は設定不要（初回に自動ダウンロードされます）
     - geminiを使う場合は前述のAPIキーの設定のみ
-
+- 画像生成を使う場合
+    - [Gemini](https://aistudio.google.com/apikey): APIキーを取得し、.envに`GOOGLE_API_KEY`を設定する
+    - [FastSD CPU](https://github.com/rupeshs/fastsdcpu): FastSD側の`./start-webserver.bat`/`./start-webserver.sh`でAPIサーバーを立てておく
 - `config.yaml`を環境に合わせる
     - LLMモデルの確認
     - 合成したいキャラクターのIDを確認
@@ -46,7 +48,7 @@ uv run python run.py chat
 ```sh
 uv run python run.py server
 ```
-http://localhost:8000/ へアクセス
+http://localhost:5000/ へアクセス
 
 # フォーマット
 ```sh
