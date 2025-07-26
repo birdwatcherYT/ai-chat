@@ -2,6 +2,7 @@ import json
 import os
 from typing import Literal
 
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
@@ -15,11 +16,11 @@ class LLMs:
     def __init__(self, llmcfg: LLMConfig):
         self.llmcfg = llmcfg
         # LLMの選択と初期化
-        if self.llmcfg.model_engine == "ollama":
+        if self.llmcfg.llm_engine == "ollama":
             self.llm = ChatOllama(**vars(llmcfg.ollama))
-        elif self.llmcfg.model_engine == "gemini":
+        elif self.llmcfg.llm_engine == "gemini":
             self.llm = ChatGoogleGenerativeAI(**vars(llmcfg.gemini))
-        elif self.llmcfg.model_engine == "openrouter":
+        elif self.llmcfg.llm_engine == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY")
             self.llm = ChatOpenAI(
                 **vars(llmcfg.openrouter),
@@ -84,6 +85,25 @@ class LLMs:
             }
         )
         return result.speaker
+
+    def get_situation_chain(self):
+        prompt = PromptTemplate.from_template(
+            """**会話履歴**を元に今の状況を表す説明を出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
+# キャラクター情報
+{user_name}
+{user_character}
+{chara_prompt}
+# 会話履歴```json
+{messages}
+```
+""",
+            partial_variables={
+                "user_name": self.llmcfg.user_name,
+                "user_character": self.llmcfg.user_character,
+                "chara_prompt": self.llmcfg.chara_prompt,
+            },
+        )
+        return prompt | self.llm | StrOutputParser()
 
     def get_utter_chain(self):
         utter_prompt_template = PromptTemplate.from_template(

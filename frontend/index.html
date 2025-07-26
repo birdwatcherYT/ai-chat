@@ -10,7 +10,6 @@
 </head>
 
 <body>
-    <!-- ▼ 変更箇所: 全体を囲むコンテナを追加 ▼ -->
     <div id="main-container">
         <div id="chat-container">
             <div id="chat-box"></div>
@@ -21,7 +20,6 @@
                 <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
             </div>
         </div>
-        <!-- ▼ 変更箇所: 画像表示用のパネルを追加 ▼ -->
         <div id="image-panel" data-state="empty">
             <img id="context-image" src="" alt="Chat Context Image" data-state="empty">
         </div>
@@ -33,7 +31,6 @@
         const sendButton = document.getElementById('send-button');
         const micButton = document.getElementById('mic-button');
         const statusArea = document.getElementById('status-area');
-        // ▼ 変更箇所: 画像パネルの要素を取得 ▼
         const imagePanel = document.getElementById('image-panel');
         const contextImage = document.getElementById('context-image');
 
@@ -49,7 +46,6 @@
         let manualStop = false;
         let tempUserMessageElement = null;
 
-        // (onopen, onclose, onerror は変更なし)
         ws.onopen = () => { enable_input(); };
         ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
         ws.onerror = (e) => { update_status("main", "エラーが発生しました。"); disable_input(true); }
@@ -60,7 +56,6 @@
             console.log("[RECEIVE]", message);
 
             switch (message.type) {
-                // (config, user_transcription, history, next_speaker, chunk, audio, stream_end, status_update, status_remove は変更なし)
                 case 'config':
                     userName = message.data.user_name;
                     document.title = `${userName} - AI Chat`;
@@ -97,8 +92,7 @@
                     if (!isPlaying) { play_from_queue(); }
                     break;
                 case 'stream_end': finish_ai_turn(); break;
-                
-                // ▼ 変更箇所: 'image'メッセージの処理を変更 ▼
+
                 case 'image':
                     imagePanel.dataset.state = 'loaded';
                     contextImage.src = message.url;
@@ -109,7 +103,6 @@
             }
         };
 
-        // (initializeSpeechRecognition, update_status, remove_status, enable_input, disable_input は変更なし)
         const initializeSpeechRecognition = () => {
             if (!("webkitSpeechRecognition" in window)) {
                 alert("このブラウザは音声認識をサポートしていません。");
@@ -132,20 +125,20 @@
                         interimTranscript += event.results[i][0].transcript;
                     }
                 }
-                
+
                 update_temp_user_message(interimTranscript);
 
                 if (finalTranscript) {
                     const trimmedTranscript = finalTranscript.trim();
                     console.log("Final transcript:", trimmedTranscript);
-                    
+
                     manualStop = true;
                     recognition.abort();
-                    
-                    remove_status('main-prompt'); 
+
+                    remove_status('main-prompt');
                     remove_temp_user_message();
                     append_message(userName, trimmedTranscript);
-                    
+
                     ws.send(JSON.stringify({ text: trimmedTranscript }));
                     disable_input();
                     update_status('speaker-decision', '➡️ 次の話者を決めています...');
@@ -155,7 +148,7 @@
             recognition.onend = () => {
                 micButton.classList.remove('recording');
                 micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
-                remove_temp_user_message(); 
+                remove_temp_user_message();
                 remove_status('main-prompt');
 
                 if (manualStop) {
@@ -186,9 +179,6 @@
         const append_message = (name, text) => { const el = document.createElement('div'); el.classList.add('message', name === userName ? 'user-message' : 'ai-message'); el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; return el; };
         const update_ai_message = (chunk) => { if (currentAiMessageElement) { currentAiMessageElement.querySelector('p').textContent += chunk; chatBox.scrollTop = chatBox.scrollHeight; } };
 
-        // ▼ 変更箇所: append_image関数は不要になったため削除 ▼
-
-        // (create/update/remove_temp_user_message, finish_ai_turn, play_from_queue, sendMessage, startRecording, stopRecording, micButton.onclick, startVAD, detectSpeech は変更なし)
         const create_temp_user_message = () => {
             if (tempUserMessageElement) return;
             tempUserMessageElement = document.createElement('div');
@@ -314,4 +304,5 @@
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage() });
     </script>
 </body>
+
 </html>

@@ -24,7 +24,6 @@ load_dotenv()
 logger = get_logger(__name__, level="INFO")
 
 
-# --- HELPERS (変更なし) ---
 def log_task(name: str, event: str, details: str = ""):
     details_str = f"| Details: {details}" if details else ""
     logger.debug(f"\n>>>> LOG | Task: {name:<20} | Event: {event:<15} {details_str}")
@@ -71,16 +70,14 @@ async def synthesis_worker(
         name, text_segment = await synthesis_queue.get()
         log_task("SYNTHESIS_WORKER", "START", f"'{text_segment[:15]}...'")
         cfg = ai_config.get(name)
-        if cfg and hasattr(cfg, "engine"):
-            try:
-                # SimpleNamespaceをvars()で辞書に変換してから展開
-                data, sr = await engines[cfg.engine].synthesize_async(
-                    text_segment, **vars(cfg.config)
-                )
-                if data is not None:
-                    await playback_queue.put((data, sr))
-            except Exception as e:
-                logger.error(f"❌ [SYNTH] 音声合成エラー: {e}")
+        try:
+            data, sr = await engines[cfg.engine].synthesize_async(
+                text_segment, **vars(cfg.config)
+            )
+            if data is not None:
+                await playback_queue.put((data, sr))
+        except Exception as e:
+            logger.error(f"❌ [SYNTH] 音声合成エラー: {e}")
         log_task("SYNTHESIS_WORKER", "END", f"'{text_segment[:15]}...'")
         synthesis_queue.task_done()
 
@@ -119,7 +116,6 @@ def llm_stream_task(
         return ""
 
 
-# --- ARCHITECTURE (変更なし) ---
 class ChatState:
     def __init__(
         self,
@@ -225,7 +221,7 @@ async def chat_start(cfg: SimpleNamespace):
 
     llmcfg = LLMConfig(cfg)
     llms = LLMs(llmcfg)
-    image_generator = ImageGenerator(llmcfg, "generated_images", "/images")
+    image_generator = ImageGenerator(llmcfg, llms, "generated_images", "/images")
     asr: SpeechToText | None = None
     user_input_mode = cfg.chat.user.input
     log_task("MAIN", "INIT", f"User input mode: {user_input_mode}")

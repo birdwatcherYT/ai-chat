@@ -40,9 +40,9 @@ chat:
   initial_turn: "{user_name}"
   streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
-    edit: false
+    edit: false # 画像編集モード
     interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
-  model_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
+  llm_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
 
 # LLM
 gemini:

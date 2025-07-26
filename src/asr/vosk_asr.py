@@ -1,7 +1,7 @@
 import json
 
-import vosk
 import sounddevice as sd
+import vosk
 
 from .base import SpeechToText
 
@@ -22,16 +22,15 @@ class VoskASR(SpeechToText):
         サーバーサイドでの処理のために追加。
         """
         rec = vosk.KaldiRecognizer(self.model, 16000)
-        
+
         # 受け取った音声データ全体を処理
         rec.AcceptWaveform(audio_bytes)
-        
+
         # 最終的な認識結果を取得
         result = json.loads(rec.FinalResult())
         text = result.get("text", "").replace(" ", "")
-        
-        return text
 
+        return text
 
     def audio_input(self) -> str:
         """

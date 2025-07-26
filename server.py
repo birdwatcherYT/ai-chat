@@ -47,7 +47,7 @@ def load_config_and_init():
         llms = LLMs(llmcfg)
         os.makedirs(GENERATED_IMAGES_DIR, exist_ok=True)
         image_generator = ImageGenerator(
-            llmcfg, GENERATED_IMAGES_DIR, GENERATED_IMAGES_URL_PATH
+            llmcfg, llms, GENERATED_IMAGES_DIR, GENERATED_IMAGES_URL_PATH
         )
         engines = {
             "voicevox": VoiceVox(),
@@ -154,10 +154,9 @@ async def synthesis_consumer():
             break
         speaker_name, text = task
         voice_config = ai_config.get(speaker_name)
-        if not voice_config or not hasattr(voice_config, "engine"):
+        if not voice_config:
             continue
         try:
-            # SimpleNamespaceをvars()で辞書に変換してから展開
             data, sr = await engines[voice_config.engine].synthesize_async(
                 text, **vars(voice_config.config)
             )
@@ -259,13 +258,15 @@ async def websocket_endpoint(websocket: WebSocket):
     global history
 
     # クライアントに設定情報を送信
-    await manager.send_json({
-        "type": "config",
-        "data": {
-            "user_input_mode": cfg.chat.user.input,
-            "user_name": llmcfg.user_name
+    await manager.send_json(
+        {
+            "type": "config",
+            "data": {
+                "user_input_mode": cfg.chat.user.input,
+                "user_name": llmcfg.user_name,
+            },
         }
-    })
+    )
 
     for message in history:
         await manager.send_json({"type": "history", "data": message})

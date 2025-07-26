@@ -22,7 +22,7 @@ class LLMConfig:
         self.image = cfg.image
         self.ollama = cfg.ollama
         self.openrouter = cfg.openrouter
-        self.model_engine = cfg.chat.model_engine
+        self.llm_engine = cfg.chat.llm_engine
 
     def format(self, text: str) -> str:
         return text.format(user_name=self.user_name, **self.ai_names)

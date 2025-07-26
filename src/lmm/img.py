@@ -4,50 +4,27 @@ from io import BytesIO
 
 from google import genai
 from google.genai import types
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 from PIL import Image
 
 from ..logger import get_logger
 from .common import LLMConfig, history_to_text
+from .llm import LLMs
 
 logger = get_logger(__name__, level="INFO")
 
 
 class ImageGenerator:
-    def __init__(self, llmcfg: LLMConfig, save_dir: str, url_path: str):
+    def __init__(self, llmcfg: LLMConfig, llms: LLMs, save_dir: str, url_path: str):
         self.llmcfg = llmcfg
         self.save_dir = save_dir
         self.url_path = url_path
         # mockがTrueでない場合のみクライアントを初期化
-        if not hasattr(self.llmcfg.image, "mock") or not self.llmcfg.image.mock:
+        if not self.llmcfg.image.mock:
             self.client = genai.Client()
         else:
             self.client = None
-        # SimpleNamespaceをvars()で辞書に変換してから展開
-        self.llm = ChatGoogleGenerativeAI(**vars(llmcfg.gemini))
-        self.situation_chain = self.get_situation_chain()
+        self.situation_chain = llms.get_situation_chain()
         self.last_image: Image.Image = None
-
-    def get_situation_chain(self):
-        prompt = PromptTemplate.from_template(
-            """**会話履歴**を元に今の状況を表す説明を出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
-# キャラクター情報
-{user_name}
-{user_character}
-{chara_prompt}
-# 会話履歴```json
-{messages}
-```
-""",
-            partial_variables={
-                "user_name": self.llmcfg.user_name,
-                "user_character": self.llmcfg.user_character,
-                "chara_prompt": self.llmcfg.chara_prompt,
-            },
-        )
-        return prompt | self.llm | StrOutputParser()
 
     def _generate_image(
         self, prompt: str, image: Image.Image = None
@@ -83,7 +60,7 @@ class ImageGenerator:
         self, history: list[dict[str, str]], edit: bool = False
     ) -> tuple[str, str] | None:
         """状況を判断し、画像を生成して(URL, ローカルパス)のタプルを返す"""
-        if hasattr(self.llmcfg.image, "mock") and self.llmcfg.image.mock:
+        if self.llmcfg.image.mock:
             logger.debug("🖼️ [MOCK-IMAGE] Returning a local mock image.")
             time.sleep(3)  # リアルな待機時間をシミュレート
             mock_filename = "mock.png"
