@@ -198,25 +198,45 @@ async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
     return results[0]
 
 
-async def run_ai_turn(turn: str, history_len_before_user_turn: int):
+async def run_ai_conversation_flow(initial_turn: str):
+    """
+    指定された'turn'から始まり、次のターンがユーザーになるまでAIの会話を管理する。
+    UIのステータス更新のために、各ステップでイベントを送信する。
+    """
     global history
     loop = asyncio.get_running_loop()
+    turn = initial_turn
 
-    history_len_after_user_turn = len(history)
-    interval = ctx.cfg.chat.image.interval
-    should_generate_image = (history_len_before_user_turn // interval) < (
-        history_len_after_user_turn // interval
-    )
+    # 次のターンがユーザーになるまでループ
+    while turn != ctx.llmcfg.user_name:
+        history_len_before_turn = len(history)
 
-    if should_generate_image:
-        asyncio.create_task(image_generation_task(list(history)))
+        # 1. これから話す人を通知
+        await manager.send_json({"type": "next_speaker", "data": turn})
+        
+        # 2. その人の発言を生成・送信
+        main_response = await main_pipeline_task(turn, loop)
 
-    main_response = await main_pipeline_task(turn, loop)
+        # 3. 発言が終わったことを通知
+        await manager.send_json({"type": "utterance_end", "data": turn})
 
-    if main_response:
-        history.append(main_response)
+        if main_response:
+            history.append(main_response)
 
-    await manager.send_json({"type": "stream_end"})
+            # 画像生成チェック (history更新後)
+            history_len_after_turn = len(history)
+            interval = ctx.cfg.chat.image.interval
+            if (history_len_before_turn // interval) < (history_len_after_turn // interval):
+                asyncio.create_task(image_generation_task(list(history)))
+
+        # 4. 内部で次の話者を決定
+        next_turn = await asyncio.to_thread(
+            ctx.llms.get_next_speaker, list(history), except_names=[turn]
+        )
+        turn = next_turn
+
+    # 5. AIの連続会話が終了したことを通知
+    await manager.send_json({"type": "conversation_end"})
 
 
 async def process_user_audio(audio_bytes: bytes) -> str:
@@ -251,7 +271,6 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason="Server not initialized")
         return
 
-    # クライアントに設定情報を送信
     await manager.send_json(
         {
             "type": "config",
@@ -264,14 +283,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
     for message in history:
         await manager.send_json({"type": "history", "data": message})
+
+    initial_turn = ctx.initial_turn
+    if initial_turn != ctx.llmcfg.user_name:
+        asyncio.create_task(run_ai_conversation_flow(initial_turn))
+    else:
+        # 初期ターンがユーザーの場合でも conversation_end を送り、UIを正しく有効化する
+        await manager.send_json({"type": "conversation_end"})
+
     try:
-        initial_turn, history_len_before = (
-            ctx.initial_turn,
-            len(history),
-        )
-        if (history_len_before + 1) % ctx.cfg.chat.image.interval == 0:
-            await manager.send_json({"type": "next_speaker", "data": initial_turn})
-            asyncio.create_task(run_ai_turn(initial_turn, history_len_before))
         while True:
             message = await websocket.receive()
             user_message = ""
@@ -286,11 +306,16 @@ async def websocket_endpoint(websocket: WebSocket):
             if not user_message:
                 continue
 
-            history_len_before_user_turn, user_name = len(history), ctx.llmcfg.user_name
+            user_name = ctx.llmcfg.user_name
             history.append({"name": user_name, "content": user_message})
-            next_turn = ctx.llms.get_next_speaker(history, except_names=[user_name])
-            await manager.send_json({"type": "next_speaker", "data": next_turn})
-            asyncio.create_task(run_ai_turn(next_turn, history_len_before_user_turn))
+
+            # 内部で次の話者を決定
+            next_turn = await asyncio.to_thread(
+                ctx.llms.get_next_speaker, list(history), except_names=[user_name]
+            )
+            # AIの会話フローを開始するタスクを作成
+            asyncio.create_task(run_ai_conversation_flow(next_turn))
+
     except WebSocketDisconnect:
         pass
     except Exception as e:

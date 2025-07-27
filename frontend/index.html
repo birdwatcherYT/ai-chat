@@ -46,7 +46,7 @@
         let manualStop = false;
         let tempUserMessageElement = null;
 
-        ws.onopen = () => { enable_input(); };
+        ws.onopen = () => { /* 初期化は onmessage の config で行う */ };
         ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
         ws.onerror = (e) => { update_status("main", "エラーが発生しました。"); disable_input(true); }
 
@@ -68,17 +68,15 @@
                     micButton.title = `常時音声入力 (${userInputMode === 'browser' ? 'ブラウザ認識' : 'サーバー認識'})`;
                     console.log(`GUI Input mode set to: ${userInputMode}`);
                     break;
+
                 case 'user_transcription':
-                    // サーバーでの認識中ステータスを削除
                     remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
                         append_message(userName, message.data);
                         update_status('speaker-decision', '➡️ 次の話者を決めています...');
-                        // この後AIのターンが始まるので、UIは無効のままでOK
                     } else {
                         update_status('asr-failed', '音声を認識できませんでした。', 2000);
-                        // AIのターンに進まないので、UIの入力を再度有効化する
                         if (isContinuousMode) {
                             setTimeout(startRecording, 100);
                         } else {
@@ -86,28 +84,50 @@
                         }
                     }
                     break;
-                case 'history': append_message(message.data.name, message.data.content); break;
+
+                case 'history':
+                    append_message(message.data.name, message.data.content);
+                    break;
+
                 case 'next_speaker':
                     aiTurnFinished = false;
                     remove_status('speaker-decision');
-                    remove_status('asr-failed');
                     update_status('ai_thinking', `🧠 ${message.data}が発言を考えています...`);
-                    if (message.data !== userName) currentAiMessageElement = append_message(message.data, '');
+                    if (message.data !== userName) {
+                         currentAiMessageElement = append_message(message.data, '');
+                    }
                     break;
-                case 'chunk': update_ai_message(message.data.content); break;
+
+                case 'chunk':
+                    update_ai_message(message.data.content);
+                    break;
+                
+                case 'utterance_end':
+                    remove_status('ai_thinking');
+                    update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                    currentAiMessageElement = null;
+                    break;
+
                 case 'audio':
                     audioQueue.push(message.data);
                     if (!isPlaying) { play_from_queue(); }
                     break;
-                case 'stream_end': finish_ai_turn(); break;
+
+                case 'conversation_end':
+                    finish_ai_turn();
+                    break;
 
                 case 'image':
                     imagePanel.dataset.state = 'loaded';
                     contextImage.src = message.url;
                     break;
 
-                case 'status_update': update_status(message.data.id, message.data.text); break;
-                case 'status_remove': remove_status(message.data.id); break;
+                case 'status_update': 
+                    update_status(message.data.id, message.data.text);
+                    break;
+                case 'status_remove': 
+                    remove_status(message.data.id);
+                    break;
             }
         };
 
@@ -138,18 +158,9 @@
 
                 if (finalTranscript) {
                     const trimmedTranscript = finalTranscript.trim();
-                    console.log("Final transcript:", trimmedTranscript);
-
                     manualStop = true;
                     recognition.abort();
-
-                    remove_status('main-prompt');
-                    remove_temp_user_message();
-                    append_message(userName, trimmedTranscript);
-
-                    ws.send(JSON.stringify({ text: trimmedTranscript }));
-                    disable_input();
-                    update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                    sendUserMessage(trimmedTranscript);
                 }
             };
 
@@ -211,11 +222,11 @@
         const finish_ai_turn = () => {
             currentAiMessageElement = null;
             remove_status('ai_thinking');
+            remove_status('speaker-decision');
             aiTurnFinished = true;
             if (!isPlaying) {
                 if (isContinuousMode) {
-                    // 先にUIを有効化してから、録音を開始する
-                    enable_input(false); // falseを渡し不要なプロンプト表示を抑制
+                    enable_input(false);
                     startRecording();
                 } else {
                     enable_input(true);
@@ -227,8 +238,7 @@
                 isPlaying = false;
                 if (aiTurnFinished) {
                     if (isContinuousMode) {
-                        // 先にUIを有効化する
-                        enable_input(false); // falseを渡し不要なプロンプト表示を抑制
+                        enable_input(false);
                         startRecording();
                     } else {
                         enable_input(true);
@@ -249,11 +259,27 @@
             source.onended = () => { isPlaying = false; play_from_queue(); };
             source.start();
         };
-        const sendMessage = () => { const message = messageInput.value; if (message && !messageInput.disabled) { ws.send(JSON.stringify({ text: message })); append_message(userName, message); messageInput.value = ''; disable_input(); update_status('speaker-decision', '➡️ 次の話者を決めています...'); } };
+
+        const sendUserMessage = (message) => {
+            if (message && message.trim()) {
+                remove_temp_user_message();
+                append_message(userName, message);
+                ws.send(JSON.stringify({ text: message }));
+                disable_input();
+                update_status('speaker-decision', '➡️ 次の話者を決めています...');
+            }
+        }
+
+        const handleTextInput = () => {
+             const message = messageInput.value;
+             if (message && !messageInput.disabled) {
+                sendUserMessage(message);
+                messageInput.value = '';
+             }
+        };
+
         const startRecording = async () => {
             if (micButton.classList.contains('recording')) return;
-            // disable_input();
-            // マイクボタンは無効化せず、他の入力のみを無効化する
             messageInput.disabled = true;
             sendButton.disabled = true;
 
@@ -283,13 +309,12 @@
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     audioChunks = [];
                     mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
-                    // mediaRecorderのonstopイベントハンドラ内
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         if (audioBlob.size > 1000) {
                             ws.send(audioBlob);
-                            // 音声送信直後にUIを無効化し、ユーザーに状態をフィードバックする
                             disable_input();
+                            create_temp_user_message();
                             update_status('asr-server', 'サーバーで音声を認識中...');
                         } else {
                             remove_temp_user_message();
@@ -301,7 +326,6 @@
                         }
                     };
                     mediaRecorder.start();
-                    startVAD();
                 } catch (err) {
                     console.error("マイクアクセスエラー:", err);
                     update_status('main-prompt', 'マイクへのアクセスが拒否されました。');
@@ -335,10 +359,9 @@
                 enable_input();
             }
         };
-        const startVAD = () => { const source = audioContext.createMediaStreamSource(stream); analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = 0.5; dataArray = new Uint8Array(analyser.frequencyBinCount); source.connect(analyser); detectSpeech(); };
-        const detectSpeech = () => { if (!mediaRecorder || mediaRecorder.state !== "recording") { cancelAnimationFrame(animationFrameId); return; }; animationFrameId = requestAnimationFrame(detectSpeech); analyser.getByteTimeDomainData(dataArray); let sum = 0.0; for (const x of dataArray) { sum += Math.abs(x / 128.0 - 1.0); } const avg = sum / dataArray.length; if (avg > VAD_THRESHOLD) { if (!isSpeaking) { isSpeaking = true; update_status('main-prompt', '...聞いています...'); } clearTimeout(silenceTimer); silenceTimer = null; } else if (isSpeaking) { if (!silenceTimer) { silenceTimer = setTimeout(() => { stopRecording(); }, SILENCE_DURATION_MS); } } };
-        sendButton.onclick = sendMessage;
-        messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage() });
+
+        sendButton.onclick = handleTextInput;
+        messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleTextInput() });
     </script>
 </body>
 

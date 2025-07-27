@@ -40,7 +40,7 @@ chat:
   initial_turn: "{user_name}"
   streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
-    model: fastsd # mock, gemini_image, fastsd
+    model: mock # mock, gemini_image, fastsd
     edit: false   # 画像編集モード
     interval: 5   # 画像生成頻度（使わない場合この値を大きくする）
 
