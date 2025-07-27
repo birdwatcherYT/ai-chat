@@ -14,7 +14,12 @@
         <div id="chat-container">
             <div id="chat-box"></div>
             <div id="status-area"></div>
+            <!-- 画像プレビューエリア -->
+            <div id="preview-area"></div>
             <div id="input-area">
+                <!-- 画像添付ボタンと非表示のファイル入力 -->
+                <button id="attach-button" title="画像を添付">📎</button>
+                <input type="file" id="image-input" accept="image/*" style="display: none;">
                 <input type="text" id="message-input" placeholder="メッセージを入力..." disabled>
                 <button id="send-button" disabled>送信</button>
                 <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
@@ -33,6 +38,11 @@
         const statusArea = document.getElementById('status-area');
         const imagePanel = document.getElementById('image-panel');
         const contextImage = document.getElementById('context-image');
+        // 画像関連の要素
+        const attachButton = document.getElementById('attach-button');
+        const imageInput = document.getElementById('image-input');
+        const previewArea = document.getElementById('preview-area');
+
 
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -43,9 +53,10 @@
         let aiTurnFinished = true;
         let recognition;
         let userInputMode = 'audio';
-        let isFullAutoMode = false; // ★ 追加: 全自動モードフラグ
+        let isFullAutoMode = false;
         let manualStop = false;
         let tempUserMessageElement = null;
+        let attachedImage = null; // 添付画像データ
 
         ws.onopen = () => { /* 初期化は onmessage の config で行う */ };
         ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
@@ -62,13 +73,13 @@
                     document.title = `${userName} - AI Chat`;
                     userInputMode = message.data.user_input_mode;
 
-                    // ★ 修正: モードに応じてUIの初期状態を決定
                     if (userInputMode === 'ai') {
                         isFullAutoMode = true;
-                        disable_input(true); // isErrorフラグをtrueにして永続的に無効化
+                        disable_input(true);
                         update_status("main", "🤖 全自動モードで実行中...");
-                        micButton.style.display = 'none'; // マイクボタンを非表示
-                        sendButton.style.display = 'none'; // 送信ボタンを非表示
+                        micButton.style.display = 'none';
+                        sendButton.style.display = 'none';
+                        attachButton.style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
                     } else if (userInputMode === 'text' || userInputMode === 'browser') {
                         userInputMode = 'browser';
@@ -82,8 +93,8 @@
                     remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
-                        append_message(userName, message.data);
-                        update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                        // テキストのみを渡す
+                        sendUserMessage(message.data);
                     } else {
                         update_status('asr-failed', '音声を認識できませんでした。', 2000);
                         if (isContinuousMode) {
@@ -95,26 +106,30 @@
                     break;
 
                 case 'history':
-                    append_message(message.data.name, message.data.content);
+                    // 履歴メッセージの表示 (画像対応)
+                    const content = message.data.content;
+                    const textOnly = content.replace(/\n\(画像添付\)$/, "");
+                    const hasImage = content.includes("\n(画像添付)");
+                    // 履歴からの画像表示は実装しないため、hasImageはここでは使わない
+                    append_message(message.data.name, textOnly, null);
                     break;
 
                 case 'next_speaker':
                     aiTurnFinished = false;
                     remove_status('speaker-decision');
                     update_status('ai_thinking', `🧠 ${message.data}が発言を考えています...`);
-                    if (message.data !== userName || isFullAutoMode) { // AIモードではユーザーの発言もAIとして表示
-                         currentAiMessageElement = append_message(message.data, '');
+                    if (message.data !== userName || isFullAutoMode) {
+                        currentAiMessageElement = append_message(message.data, '');
                     }
                     break;
 
                 case 'chunk':
                     update_ai_message(message.data.content);
                     break;
-                
+
                 case 'utterance_end':
                     remove_status('ai_thinking');
-                    // AIモードでなければ、次の話者を決定中と表示
-                    if(!isFullAutoMode) {
+                    if (!isFullAutoMode) {
                         update_status('speaker-decision', '➡️ 次の話者を決めています...');
                     }
                     currentAiMessageElement = null;
@@ -134,10 +149,10 @@
                     contextImage.src = message.url;
                     break;
 
-                case 'status_update': 
+                case 'status_update':
                     update_status(message.data.id, message.data.text);
                     break;
-                case 'status_remove': 
+                case 'status_remove':
                     remove_status(message.data.id);
                     break;
             }
@@ -203,26 +218,34 @@
         };
         const update_status = (id, text, timeout = 0) => { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.className = 'status-item'; statusArea.appendChild(el); } el.textContent = text; if (timeout > 0) { setTimeout(() => { if (el) el.remove(); }, timeout); } };
         const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
-        const enable_input = (isManual = true) => { 
-            if(isFullAutoMode) return; // ★ AIモードでは入力を有効にしない
-            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); } };
-        const disable_input = (isError = false) => { 
-            messageInput.disabled = true; 
-            sendButton.disabled = true; 
-            micButton.disabled = true; 
-            if(!isFullAutoMode) remove_status("main-prompt"); // ★ AIモードではメインプロンプトを消さない
+        const enable_input = (isManual = true) => {
+            if (isFullAutoMode) return;
+            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; attachButton.disabled = false;
+            if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); }
+        };
+        const disable_input = (isError = false) => {
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+            micButton.disabled = true;
+            attachButton.disabled = true;
+            if (!isFullAutoMode) remove_status("main-prompt");
         };
 
-        const append_message = (name, text) => { 
+        // 画像表示に対応
+        const append_message = (name, text, imageSrc = null) => {
             const isUser = name === userName;
-            // ★ AIモードではユーザーの発言もAIメッセージとして扱う
             const messageClass = (isUser && !isFullAutoMode) ? 'user-message' : 'ai-message';
-            const el = document.createElement('div'); 
+            const el = document.createElement('div');
             el.classList.add('message', messageClass);
-            el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; 
-            chatBox.appendChild(el); 
-            chatBox.scrollTop = chatBox.scrollHeight; 
-            return el; 
+            let imageHTML = '';
+            if (imageSrc) {
+                imageHTML = `<img src="${imageSrc}" class="message-image" alt="添付画像">`;
+            }
+            // テキストが空でもpタグは生成する（AIのストリーミング表示のため）
+            el.innerHTML = `<strong class="name">${name}</strong>${imageHTML}<p>${text || ''}</p>`;
+            chatBox.appendChild(el);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return el;
         };
         const update_ai_message = (chunk) => { if (currentAiMessageElement) { currentAiMessageElement.querySelector('p').textContent += chunk; chatBox.scrollTop = chatBox.scrollHeight; } };
 
@@ -288,28 +311,56 @@
             source.start();
         };
 
+        // メッセージ送信ロジックを一本化
         const sendUserMessage = (message) => {
-            if (message && message.trim()) {
+            const text = message || '';
+            const image = attachedImage || null;
+            if (text.trim() || image) {
                 remove_temp_user_message();
-                append_message(userName, message);
-                ws.send(JSON.stringify({ text: message }));
+                append_message(userName, text, image);
+                ws.send(JSON.stringify({ text, image }));
                 disable_input();
                 update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                clearAttachment();
             }
         }
 
         const handleTextInput = () => {
-             const message = messageInput.value;
-             if (message && !messageInput.disabled) {
+            const message = messageInput.value;
+            if ((message && !messageInput.disabled) || attachedImage) {
                 sendUserMessage(message);
                 messageInput.value = '';
-             }
+            }
+        };
+
+        // 画像添付関連の関数
+        const handleImageAttachment = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                attachedImage = e.target.result;
+                previewArea.innerHTML = `
+                    <div class="preview-container">
+                        <img src="${attachedImage}" class="image-preview" alt="Preview"/>
+                        <button class="remove-preview-btn">×</button>
+                    </div>`;
+                previewArea.querySelector('.remove-preview-btn').onclick = clearAttachment;
+            };
+            reader.readAsDataURL(file);
+            imageInput.value = '';
+        };
+        const clearAttachment = () => {
+            attachedImage = null;
+            previewArea.innerHTML = '';
         };
 
         const startRecording = async () => {
             if (isFullAutoMode || micButton.classList.contains('recording')) return;
+            // disable_inputにはボタン制御も含まれるため、個別で制御
             messageInput.disabled = true;
             sendButton.disabled = true;
+            attachButton.disabled = true;
 
             micButton.classList.add('recording');
             micButton.textContent = "⏹️";
@@ -376,7 +427,7 @@
             }
         };
         micButton.onclick = () => {
-            if(isFullAutoMode) return;
+            if (isFullAutoMode) return;
             isContinuousMode = !isContinuousMode;
             micButton.classList.toggle('continuous-mode', isContinuousMode);
             if (isContinuousMode) {
@@ -389,6 +440,9 @@
 
         sendButton.onclick = handleTextInput;
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleTextInput() });
+        // 画像添付ボタンのイベントリスナー
+        attachButton.onclick = () => imageInput.click();
+        imageInput.onchange = handleImageAttachment;
     </script>
 </body>
 

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from src.app_context import AppContext
 from src.asr.base import SpeechToText
 from src.img.base import ImageGenerator
-from src.llm.common import LLMConfig, history_to_text
+from src.llm.common import LLMConfig
 from src.llm.llm import LLMs
 from src.logger import get_logger
 from src.tts.base import TextToSpeech
@@ -80,8 +80,7 @@ def llm_stream_task(
     log_task("LLM_STREAM", "THREAD_START")
     full_response, answer_segment = "", ""
     try:
-        for chunk in utter_chain.stream(utter_prompt_vars):
-            content = chunk.content
+        for content in utter_chain.stream(utter_prompt_vars):
             print(content, end="", flush=True)
             full_response += content
             answer_segment += content
@@ -138,11 +137,8 @@ async def chat_loop(state: ChatState):
             user_input = await asyncio.to_thread(input)
         current_message = user_input
     else:
-        utter_chain = state.llms.get_utter_chain()
-        utter_prompt_vars = {
-            "speaker": state.turn,
-            "messages": history_to_text(state.history),
-        }
+        utter_chain = state.llms.get_utter_chain(state.history)
+        utter_prompt_vars = {"speaker": state.turn}
         log_task("CHAT_LOOP", "LLM_TASK_START")
         full_response = await asyncio.to_thread(
             llm_stream_task,
@@ -158,7 +154,9 @@ async def chat_loop(state: ChatState):
         current_message = full_response
 
     if current_message:
-        state.history.append({"name": state.turn, "content": current_message})
+        state.history.append(
+            {"name": state.turn, "content": current_message, "type": "text"}
+        )
         if len(state.history) % state.cfg.chat.image.interval == 0:
             asyncio.create_task(
                 generate_and_open_image(
