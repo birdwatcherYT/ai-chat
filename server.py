@@ -14,7 +14,6 @@ from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
 from src.app_context import AppContext, load_config
-from src.llm.common import history_to_text
 from src.logger import get_logger
 
 load_dotenv()
