@@ -166,10 +166,9 @@ async def image_generation_task(current_history):
         }
     )
     try:
-        # 画像生成にはテキスト化された履歴を渡す
         image_url, _ = await asyncio.to_thread(
             ctx.img_generator.generate_image,
-            history_to_text(current_history),
+            current_history,
             ctx.cfg.chat.image.edit,
         )
         if image_url:

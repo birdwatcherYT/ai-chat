@@ -102,7 +102,7 @@ class LLMs:
 ```
 """,
             partial_variables={
-                "user_character": self.llmcfg.user_prompt,
+                "user_prompt": self.llmcfg.user_prompt,
                 "chara_prompt": self.llmcfg.chara_prompt,
             },
         )
