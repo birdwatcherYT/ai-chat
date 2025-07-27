@@ -17,22 +17,26 @@
             <!-- 画像プレビューエリア -->
             <div id="preview-area"></div>
             <div id="input-area">
-                <!-- 画像添付ボタンと非表示のファイル入力 -->
                 <button id="attach-button" title="画像を添付">📎</button>
                 <input type="file" id="image-input" accept="image/*" style="display: none;">
                 <input type="text" id="message-input" placeholder="メッセージを入力..." disabled>
                 <button id="send-button" disabled>送信</button>
                 <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
                 <button id="webcam-button" title="WebカメラのON/OFF">📷</button>
+                <!-- ★ 削除: 圧縮オプションを移動するため削除 -->
             </div>
         </div>
-        <!-- 右側のパネルをグループ化 -->
         <div id="right-panels-container">
             <div id="image-panel" data-state="empty">
                 <img id="context-image" src="" alt="Chat Context Image" data-state="empty">
             </div>
             <div id="webcam-panel" data-state="off">
                 <video id="webcam-video" autoplay playsinline muted></video>
+                <!-- ★ 新設: 画質調整UI -->
+                <div id="webcam-controls">
+                    <label for="quality-slider">画質: <span id="quality-value">30</span>%</label>
+                    <input type="range" id="quality-slider" min="10" max="100" value="30" step="10">
+                </div>
             </div>
         </div>
     </div>
@@ -53,6 +57,9 @@
         const webcamButton = document.getElementById('webcam-button');
         const webcamPanel = document.getElementById('webcam-panel');
         const webcamVideo = document.getElementById('webcam-video');
+        // 画質スライダー関連の要素を取得
+        const qualitySlider = document.getElementById('quality-slider');
+        const qualityValueLabel = document.getElementById('quality-value');
 
 
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -95,6 +102,7 @@
                         sendButton.style.display = 'none';
                         attachButton.style.display = 'none';
                         webcamButton.style.display = 'none';
+                        // document.getElementById('compression-control').style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
                     } else if (userInputMode === 'text' || userInputMode === 'browser') {
                         userInputMode = 'browser';
@@ -337,7 +345,10 @@
                 canvas.width = webcamVideo.videoWidth;
                 canvas.height = webcamVideo.videoHeight;
                 canvas.getContext('2d').drawImage(webcamVideo, 0, 0, canvas.width, canvas.height);
-                webcamCapture = canvas.toDataURL('image/jpeg');
+
+                // スライダーの値を取得して品質を決定
+                const quality = parseInt(qualitySlider.value) / 100;
+                webcamCapture = canvas.toDataURL('image/jpeg', quality);
             }
 
             if (text.trim() || image || webcamCapture) {
@@ -498,6 +509,11 @@
                 startWebcam();
             }
         };
+
+        // スライダーの値をラベルに反映するイベントリスナー
+        qualitySlider.addEventListener('input', (e) => {
+            qualityValueLabel.textContent = e.target.value;
+        });
 
 
         sendButton.onclick = handleTextInput;
