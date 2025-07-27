@@ -227,7 +227,6 @@
             messageInput.disabled = true;
             sendButton.disabled = true;
             micButton.disabled = true;
-            attachButton.disabled = true;
             if (!isFullAutoMode) remove_status("main-prompt");
         };
 
@@ -360,7 +359,6 @@
             // disable_inputにはボタン制御も含まれるため、個別で制御
             messageInput.disabled = true;
             sendButton.disabled = true;
-            attachButton.disabled = true;
 
             micButton.classList.add('recording');
             micButton.textContent = "⏹️";
