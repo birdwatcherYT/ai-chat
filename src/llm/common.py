@@ -23,7 +23,7 @@ class LLMConfig:
         return text.format(user_name=self.user_name, **self.ai_names)
 
 
-# ★ 修正: 新しいhistory形式を解釈する
+# 新しいhistory形式を解釈する
 def history_to_text(history: list[dict]) -> str:
     """
     新しい形式の会話履歴を、画像を含まないテキストのみのJSON文字列に変換する。
