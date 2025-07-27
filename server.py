@@ -77,16 +77,15 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# image_data_list引数を削除
 def llm_stream_blocking_task(
-    turn: str, current_history: list, loop: asyncio.AbstractEventLoop
+    turn: str,
+    current_history: list,
+    loop: asyncio.AbstractEventLoop,
+    webcam_capture: str | None = None,
 ):
     full_response, answer_segment = "", ""
     try:
-        # get_utter_chainは引数なしで呼び出す
-        utter_chain = ctx.llms.get_utter_chain(current_history)
-        # invoke/streamに完全なhistoryを渡す
-        # utter_prompt_vars = {"speaker": turn, "history": current_history}
+        utter_chain = ctx.llms.get_utter_chain(current_history, webcam_capture)
         utter_prompt_vars = {"speaker": turn}
         for content in utter_chain.stream(utter_prompt_vars):
             full_response += content
@@ -109,7 +108,6 @@ def llm_stream_blocking_task(
             asyncio.run_coroutine_threadsafe(
                 llm_text_queue.put((turn, answer_segment)), loop
             )
-        # historyに追加するのはテキストのみ
         return {"name": turn, "type": "text", "content": full_response}
     except Exception:
         traceback.print_exc()
@@ -191,21 +189,23 @@ async def image_generation_task(current_history):
         await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
 
-# image_data_list引数を削除
-async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
-    llm_task = asyncio.to_thread(llm_stream_blocking_task, turn, list(history), loop)
+async def main_pipeline_task(
+    turn: str, loop: asyncio.AbstractEventLoop, webcam_capture: str | None = None
+):
+    llm_task = asyncio.to_thread(
+        llm_stream_blocking_task, turn, list(history), loop, webcam_capture
+    )
     audio_task = asyncio.gather(synthesis_consumer(), audio_sender_consumer())
     results = await asyncio.gather(llm_task, audio_task)
     return results[0]
 
 
-# image_data_list引数を削除
-async def run_single_turn(turn: str):
+async def run_single_turn(turn: str, webcam_capture: str | None = None):
     global history
     loop = asyncio.get_running_loop()
     history_len_before_turn = len(history)
     await manager.send_json({"type": "next_speaker", "data": turn})
-    main_response = await main_pipeline_task(turn, loop)
+    main_response = await main_pipeline_task(turn, loop, webcam_capture)
     await manager.send_json({"type": "utterance_end", "data": turn})
     if main_response:
         history.append(main_response)
@@ -215,10 +215,18 @@ async def run_single_turn(turn: str):
             asyncio.create_task(image_generation_task(list(history)))
 
 
-# image_data引数を削除
-async def run_ai_conversation_flow(initial_turn: str):
+async def run_ai_conversation_flow(
+    initial_turn: str, webcam_capture: str | None = None
+):
     turn = initial_turn
+    # 最初のターンのみWebカメラ画像を渡す
+    await run_single_turn(turn, webcam_capture)
+    turn = await asyncio.to_thread(
+        ctx.llms.get_next_speaker, list(history), except_names=[turn]
+    )
+
     while turn != ctx.llmcfg.user_name:
+        # 2ターン目以降はWebカメラ画像を渡さない
         await run_single_turn(turn)
         turn = await asyncio.to_thread(
             ctx.llms.get_next_speaker, list(history), except_names=[turn]
@@ -296,12 +304,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 raw_message = await websocket.receive()
                 user_message_text = ""
                 user_message_image = None
+                webcam_capture = None
 
                 if "text" in raw_message:
                     try:
                         data = json.loads(raw_message["text"])
                         user_message_text = data.get("text", "")
                         user_message_image = data.get("image")
+                        webcam_capture = data.get("webcam_capture")
                     except (json.JSONDecodeError, TypeError):
                         user_message_text = raw_message["text"]
                 elif "bytes" in raw_message:
@@ -310,11 +320,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         {"type": "user_transcription", "data": user_message_text}
                     )
 
-                if not user_message_text and not user_message_image:
+                if (
+                    not user_message_text
+                    and not user_message_image
+                    and not webcam_capture
+                ):
                     continue
 
                 user_name = ctx.llmcfg.user_name
-                # 新しいhistory形式で追加
+
+                # historyにはテキストと添付画像のみを追加
                 if user_message_text:
                     history.append(
                         {
@@ -335,7 +350,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 next_turn = await asyncio.to_thread(
                     ctx.llms.get_next_speaker, list(history), except_names=[user_name]
                 )
-                asyncio.create_task(run_ai_conversation_flow(next_turn))
+                # webcam_captureを渡す
+                asyncio.create_task(run_ai_conversation_flow(next_turn, webcam_capture))
 
     except WebSocketDisconnect:
         logger.info("👋 [SYSTEM] クライアントが切断しました。")

@@ -108,14 +108,12 @@ class LLMs:
         )
         return prompt | self.llm | StrOutputParser()
 
-    # get_utter_chain全体を新しいロジックに置き換え
-    def get_utter_chain(self, history: list):
+    def get_utter_chain(self, history: list, webcam_capture: str | None = None):
         """
         発言生成のためのチェーンを取得する。
-        このチェーンは、渡されるhistoryを解釈し、動的にマルチモーダルプロンプトを構築する。
+        historyと、オプショナルなWebカメラキャプチャからプロンプトを構築する。
         """
-        # 1. ベースとなる指示テキストのテンプレート
-        instruction_template = """**キャラクター情報**を踏まえ、**会話履歴**に続く**{speaker}**の次の発言を生成してください。発話内容だけを出力してください。
+        instruction = """**キャラクター情報**を踏まえ、**会話履歴**に続く**{speaker}**の次の発言を生成してください。発話内容だけを出力してください。
 
 # キャラクター情報
 {user_prompt}
@@ -123,35 +121,36 @@ class LLMs:
 
 # 会話履歴
 """
+        multimodal_history = [{"type": "text", "text": instruction}]
 
-        # 2. メッセージ(history)を動的に構築する関数
-        # 履歴をHumanMessageのcontent形式に変換
-        multimodal_history = [{"type": "text", "text": instruction_template}]
         for item in history:
             if item["type"] == "text":
                 escaped_content = json.dumps(item["content"], ensure_ascii=False).strip(
                     '"'
                 )
                 multimodal_history.append(
-                    {
-                        "type": "text",
-                        "text": f"{item['name']}: {escaped_content}",
-                    }
+                    {"type": "text", "text": f"{item['name']}: {escaped_content}"}
                 )
             elif item["type"] == "image":
                 multimodal_history.append(
                     {"type": "image_url", "image_url": {"url": item["content"]}}
                 )
-        # TODO: 構造化出力にして削除する
-        multimodal_history.append({"type": "text", "text": "{speaker}: "})
 
-        # 3. ChatPromptTemplateを関数から生成
-        # NOTE: HumanMessageを使うと変数が展開されない
+        multimodal_history.append({"type": "text", "text": "\n{speaker}: "})
+
+        # webcam_captureが存在する場合、プロンプトに追加
+        if webcam_capture:
+            multimodal_history.append(
+                {"type": "text", "text": "\n# 現在のWebカメラ映像"}
+            )
+            multimodal_history.append(
+                {"type": "image_url", "image_url": {"url": webcam_capture}}
+            )
+
         prompt_template = ChatPromptTemplate.from_messages(
             [("human", multimodal_history)]
         )
 
-        # 4. 部分変数を適用
         partial_prompt = prompt_template.partial(
             user_prompt=self.llmcfg.user_prompt,
             chara_prompt=self.llmcfg.chara_prompt,

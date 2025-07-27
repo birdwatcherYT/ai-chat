@@ -23,10 +23,17 @@
                 <input type="text" id="message-input" placeholder="メッセージを入力..." disabled>
                 <button id="send-button" disabled>送信</button>
                 <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
+                <button id="webcam-button" title="WebカメラのON/OFF">📷</button>
             </div>
         </div>
-        <div id="image-panel" data-state="empty">
-            <img id="context-image" src="" alt="Chat Context Image" data-state="empty">
+        <!-- 右側のパネルをグループ化 -->
+        <div id="right-panels-container">
+            <div id="image-panel" data-state="empty">
+                <img id="context-image" src="" alt="Chat Context Image" data-state="empty">
+            </div>
+            <div id="webcam-panel" data-state="off">
+                <video id="webcam-video" autoplay playsinline muted></video>
+            </div>
         </div>
     </div>
 
@@ -42,6 +49,10 @@
         const attachButton = document.getElementById('attach-button');
         const imageInput = document.getElementById('image-input');
         const previewArea = document.getElementById('preview-area');
+        // Webカメラ関連の要素
+        const webcamButton = document.getElementById('webcam-button');
+        const webcamPanel = document.getElementById('webcam-panel');
+        const webcamVideo = document.getElementById('webcam-video');
 
 
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -57,6 +68,9 @@
         let manualStop = false;
         let tempUserMessageElement = null;
         let attachedImage = null; // 添付画像データ
+        // Webカメラ関連の状態
+        let isWebcamOn = false;
+        let webcamStream = null;
 
         ws.onopen = () => { /* 初期化は onmessage の config で行う */ };
         ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
@@ -80,6 +94,7 @@
                         micButton.style.display = 'none';
                         sendButton.style.display = 'none';
                         attachButton.style.display = 'none';
+                        webcamButton.style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
                     } else if (userInputMode === 'text' || userInputMode === 'browser') {
                         userInputMode = 'browser';
@@ -227,6 +242,7 @@
             messageInput.disabled = true;
             sendButton.disabled = true;
             micButton.disabled = true;
+            // attachButton.disabled = true;
             if (!isFullAutoMode) remove_status("main-prompt");
         };
 
@@ -314,10 +330,20 @@
         const sendUserMessage = (message) => {
             const text = message || '';
             const image = attachedImage || null;
-            if (text.trim() || image) {
+            let webcamCapture = null;
+
+            if (isWebcamOn && webcamStream) {
+                const canvas = document.createElement('canvas');
+                canvas.width = webcamVideo.videoWidth;
+                canvas.height = webcamVideo.videoHeight;
+                canvas.getContext('2d').drawImage(webcamVideo, 0, 0, canvas.width, canvas.height);
+                webcamCapture = canvas.toDataURL('image/jpeg');
+            }
+
+            if (text.trim() || image || webcamCapture) {
                 remove_temp_user_message();
                 append_message(userName, text, image);
-                ws.send(JSON.stringify({ text, image }));
+                ws.send(JSON.stringify({ text, image, webcam_capture: webcamCapture }));
                 disable_input();
                 update_status('speaker-decision', '➡️ 次の話者を決めています...');
                 clearAttachment();
@@ -356,7 +382,6 @@
 
         const startRecording = async () => {
             if (isFullAutoMode || micButton.classList.contains('recording')) return;
-            // disable_inputにはボタン制御も含まれるため、個別で制御
             messageInput.disabled = true;
             sendButton.disabled = true;
 
@@ -424,6 +449,36 @@
                 if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
             }
         };
+
+        const startWebcam = async () => {
+            try {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    webcamVideo.srcObject = webcamStream;
+                    webcamPanel.dataset.state = 'on';
+                    webcamButton.classList.add('on');
+                    isWebcamOn = true;
+                } else {
+                    update_status('webcam-error', 'カメラ機能がサポートされていません。', 3000);
+                }
+            } catch (err) {
+                update_status('webcam-error', 'カメラへのアクセスを許可してください。', 3000);
+                console.error("Webカメラアクセスエラー:", err);
+            }
+        };
+
+        const stopWebcam = () => {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+            }
+            webcamStream = null;
+            webcamVideo.srcObject = null;
+            webcamPanel.dataset.state = 'off';
+            webcamButton.classList.remove('on');
+            isWebcamOn = false;
+        };
+
+
         micButton.onclick = () => {
             if (isFullAutoMode) return;
             isContinuousMode = !isContinuousMode;
@@ -435,6 +490,15 @@
                 enable_input();
             }
         };
+
+        webcamButton.onclick = () => {
+            if (isWebcamOn) {
+                stopWebcam();
+            } else {
+                startWebcam();
+            }
+        };
+
 
         sendButton.onclick = handleTextInput;
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleTextInput() });

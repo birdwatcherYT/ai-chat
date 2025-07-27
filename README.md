@@ -51,7 +51,3 @@ http://localhost:5000/ へアクセス
 uv run ruff format
 uv run ruff check --fix
 ```
-
-
-# TODO
-- Webカメラ
