@@ -18,6 +18,7 @@ from src.llm.common import LLMConfig
 from src.llm.llm import LLMs
 from src.logger import get_logger
 from src.tts.base import TextToSpeech
+from src.turn_manager import TurnManager
 from src.utils import open_image
 
 load_dotenv()
@@ -108,6 +109,7 @@ class ChatState:
         cfg: SimpleNamespace,
         llmcfg: LLMConfig,
         llms: LLMs,
+        turn_manager: TurnManager,
         asr: SpeechToText | None,
         img_generator: ImageGenerator,
         initial_history: list[dict[str, str]],
@@ -116,6 +118,7 @@ class ChatState:
         self.cfg = cfg
         self.llmcfg = llmcfg
         self.llms = llms
+        self.turn_manager = turn_manager
         self.asr = asr
         self.img_generator = img_generator
         self.history = initial_history
@@ -167,10 +170,11 @@ async def chat_loop(state: ChatState):
             )
 
         log_task("NEXT_TURN_TASK", "CREATE")
-        except_names = [state.turn] if state.cfg.chat.user.input != "ai" else []
         try:
             next_speaker = await asyncio.to_thread(
-                state.llms.get_next_speaker, list(state.history), except_names
+                state.turn_manager.get_next_speaker,
+                list(state.history),
+                state.turn,
             )
             log_task("NEXT_TURN_TASK", "RESOLVED", f"New speaker: {next_speaker}")
             state.turn = next_speaker
@@ -209,6 +213,7 @@ async def chat_start(cfg: SimpleNamespace):
         cfg=ctx.cfg,
         llmcfg=ctx.llmcfg,
         llms=ctx.llms,
+        turn_manager=ctx.turn_manager,
         asr=ctx.asr_engine,
         img_generator=ctx.img_generator,
         initial_history=list(ctx.initial_history),

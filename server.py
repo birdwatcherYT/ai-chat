@@ -222,7 +222,9 @@ async def run_ai_conversation_flow(
     while turn != ctx.llmcfg.user_name:
         await run_single_turn(turn, webcam_capture)
         turn = await asyncio.to_thread(
-            ctx.llms.get_next_speaker, list(history), except_names=[turn]
+            ctx.turn_manager.get_next_speaker,
+            list(history),
+            last_speaker=turn,
         )
     await manager.send_json({"type": "conversation_end"})
 
@@ -252,13 +254,15 @@ async def process_user_audio(audio_bytes: bytes) -> str:
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     global history
-    # 新しい接続ごとにセッションデータをリセット
-    history = list(ctx.initial_history)
 
     if ctx is None:
         logger.error("❌ [SYSTEM] アプリケーションが初期化されていません。")
         await websocket.close(code=1011, reason="Server not initialized")
         return
+
+    # 新しい接続ごとにセッションデータをリセット
+    ctx.turn_manager.reset()
+    history = list(ctx.initial_history)
 
     await manager.send_json(
         {
@@ -282,8 +286,11 @@ async def websocket_endpoint(websocket: WebSocket):
             turn = ctx.initial_turn
             while True:
                 await run_single_turn(turn)
+                last_speaker = turn
                 turn = await asyncio.to_thread(
-                    ctx.llms.get_next_speaker, list(history), except_names=[]
+                    ctx.turn_manager.get_next_speaker,
+                    list(history),
+                    last_speaker=last_speaker,
                 )
                 await asyncio.sleep(1)
         else:
@@ -341,7 +348,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
                 next_turn = await asyncio.to_thread(
-                    ctx.llms.get_next_speaker, list(history), except_names=[user_name]
+                    ctx.turn_manager.get_next_speaker,
+                    list(history),
+                    last_speaker=user_name,
                 )
                 # webcam_captureを渡す
                 asyncio.create_task(run_ai_conversation_flow(next_turn, webcam_capture))

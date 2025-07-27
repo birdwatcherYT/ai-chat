@@ -27,6 +27,7 @@ AIチャット
         - COEIROINK: `uv run python run.py tts-list coeiroink`（COEIROINK GUI起動後）
         - AivisSpeech: `uv run python run.py tts-list aivisspeech`（AivisSpeech GUI起動後）
     - voskモデルへのパスを確認
+- 画像入力: 画像添付/Webカメラを使う場合は、LLMがvision対応している必要があります
 
 ### Windows対応
 - uv sync時のbuildエラー

@@ -22,6 +22,7 @@ from .logger import get_logger
 from .tts.aivisspeech import AivisSpeech
 from .tts.coeiroink import CoeiroInk
 from .tts.voicevox import VoiceVox
+from .turn_manager import TurnManager
 
 logger = get_logger(__name__, level=logging.INFO)
 
@@ -49,6 +50,7 @@ class AppContext:
         self.cfg = cfg
         self.llmcfg = LLMConfig(self.cfg)
         self.llms = LLMs(self.llmcfg)
+        self.turn_manager = TurnManager(cfg, self.llms)
         self.img_generator = self._init_image_generator()
         self.asr_engine = self._init_asr_engine()
         self.tts_engines = {

@@ -47,6 +47,7 @@ chat:
     save_dir: "generated_images" # 生成された画像の保存先ディレクトリ
     url_path: "/images" # Webサーバー経由で画像にアクセスするためのURLパス
   llm_engine: ollama # ここにLLMモデルのエンジンを指定します (gemini, ollama, または openrouter)
+  turn_control_mode: random # llm, random, round_robin
 
 # LLM
 gemini:
