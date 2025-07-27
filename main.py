@@ -49,6 +49,13 @@ async def synthesis_worker(
         name, text_segment = await synthesis_queue.get()
         log_task("SYNTHESIS_WORKER", "START", f"'{text_segment[:15]}...'")
         cfg = ai_config.get(name)
+
+        # cfgが存在し、かつengineがNoneでない場合のみ音声合成を実行
+        if not cfg or not cfg.engine:
+            log_task("SYNTHESIS_WORKER", "SKIP", "No voice engine configured")
+            synthesis_queue.task_done()
+            continue
+
         try:
             data, sr = await engines[cfg.engine].synthesize_async(
                 text_segment, **vars(cfg.config)
@@ -57,6 +64,7 @@ async def synthesis_worker(
                 await playback_queue.put((data, sr))
         except Exception as e:
             logger.error(f"❌ [SYNTH] 音声合成エラー: {e}")
+
         log_task("SYNTHESIS_WORKER", "END", f"'{text_segment[:15]}...'")
         synthesis_queue.task_done()
 
@@ -161,7 +169,7 @@ async def chat_loop(state: ChatState):
             )
 
         log_task("NEXT_TURN_TASK", "CREATE")
-        except_names = [state.turn]
+        except_names = [state.turn] if state.cfg.chat.user.input != "ai" else []
         try:
             next_speaker = await asyncio.to_thread(
                 state.llms.get_next_speaker, list(state.history), except_names

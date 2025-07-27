@@ -129,8 +129,11 @@ async def synthesis_consumer():
             break
         speaker_name, text = task
         voice_config = ctx.ai_config.get(speaker_name)
-        if not voice_config:
+
+        # voice_configが存在し、かつengineがNoneでない場合のみ音声合成を実行
+        if not voice_config or not voice_config.engine:
             continue
+
         try:
             data, sr = await ctx.tts_engines[voice_config.engine].synthesize_async(
                 text, **vars(voice_config.config)
@@ -199,35 +202,36 @@ async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
     return results[0]
 
 
-async def run_ai_conversation_flow(initial_turn: str):
+async def run_single_turn(turn: str):
     """
-    指定された'turn'から始まり、次のターンがユーザーになるまでAIの会話を管理する。
-    UIのステータス更新のために、各ステップでイベントを送信する。
+    指定された話者1人分の会話ターンを実行し、履歴を更新する
     """
     global history
     loop = asyncio.get_running_loop()
+    history_len_before_turn = len(history)
+
+    await manager.send_json({"type": "next_speaker", "data": turn})
+    main_response = await main_pipeline_task(turn, loop)
+    await manager.send_json({"type": "utterance_end", "data": turn})
+
+    if main_response:
+        history.append(main_response)
+        history_len_after_turn = len(history)
+        interval = ctx.cfg.chat.image.interval
+        if (history_len_before_turn // interval) < (history_len_after_turn // interval):
+            asyncio.create_task(image_generation_task(list(history)))
+
+
+async def run_ai_conversation_flow(initial_turn: str):
+    """
+    指定された話者から始まり、次のターンがユーザーになるまでAIの会話を実行する
+    """
     turn = initial_turn
-
     while turn != ctx.llmcfg.user_name:
-        history_len_before_turn = len(history)
-
-        await manager.send_json({"type": "next_speaker", "data": turn})
-        main_response = await main_pipeline_task(turn, loop)
-        await manager.send_json({"type": "utterance_end", "data": turn})
-
-        if main_response:
-            history.append(main_response)
-
-            history_len_after_turn = len(history)
-            interval = ctx.cfg.chat.image.interval
-            if (history_len_before_turn // interval) < (history_len_after_turn // interval):
-                asyncio.create_task(image_generation_task(list(history)))
-
-        next_turn = await asyncio.to_thread(
+        await run_single_turn(turn)
+        turn = await asyncio.to_thread(
             ctx.llms.get_next_speaker, list(history), except_names=[turn]
         )
-        turn = next_turn
-
     await manager.send_json({"type": "conversation_end"})
 
 
@@ -276,45 +280,54 @@ async def websocket_endpoint(websocket: WebSocket):
     for message in history:
         await manager.send_json({"type": "history", "data": message})
 
-    initial_turn = ctx.initial_turn
-    if initial_turn != ctx.llmcfg.user_name:
-        asyncio.create_task(run_ai_conversation_flow(initial_turn))
-    else:
-        await manager.send_json({"type": "conversation_end"})
-
     try:
-        while True:
-            message = await websocket.receive()
-            user_message = ""
-
-            # テキストメッセージをJSONとして解析する
-            if "text" in message and message["text"] is not None:
-                try:
-                    data = json.loads(message["text"])
-                    user_message = data.get("text", "")
-                except (json.JSONDecodeError, TypeError):
-                    # JSONでない場合は、そのままテキストとして扱う（フォールバック）
-                    user_message = message["text"]
-            
-            elif "bytes" in message and message["bytes"] is not None:
-                user_message = await process_user_audio(message["bytes"])
-                await manager.send_json(
-                    {"type": "user_transcription", "data": user_message}
+        if ctx.cfg.chat.user.input == "ai":
+            logger.info("🤖 [SYSTEM] 全自動AIモードで起動します。")
+            turn = ctx.initial_turn
+            while True:
+                await run_single_turn(turn)
+                turn = await asyncio.to_thread(
+                    ctx.llms.get_next_speaker, list(history), except_names=[]
                 )
+                await asyncio.sleep(1)
 
-            if not user_message:
-                continue
+        else:
+            initial_turn = ctx.initial_turn
+            if initial_turn != ctx.llmcfg.user_name:
+                await run_ai_conversation_flow(initial_turn)
+            else:
+                await manager.send_json({"type": "conversation_end"})
 
-            user_name = ctx.llmcfg.user_name
-            history.append({"name": user_name, "content": user_message})
+            while True:
+                message = await websocket.receive()
+                user_message = ""
 
-            next_turn = await asyncio.to_thread(
-                ctx.llms.get_next_speaker, list(history), except_names=[user_name]
-            )
-            asyncio.create_task(run_ai_conversation_flow(next_turn))
+                if "text" in message and message["text"] is not None:
+                    try:
+                        data = json.loads(message["text"])
+                        user_message = data.get("text", "")
+                    except (json.JSONDecodeError, TypeError):
+                        user_message = message["text"]
+
+                elif "bytes" in message and message["bytes"] is not None:
+                    user_message = await process_user_audio(message["bytes"])
+                    await manager.send_json(
+                        {"type": "user_transcription", "data": user_message}
+                    )
+
+                if not user_message:
+                    continue
+
+                user_name = ctx.llmcfg.user_name
+                history.append({"name": user_name, "content": user_message})
+
+                next_turn = await asyncio.to_thread(
+                    ctx.llms.get_next_speaker, list(history), except_names=[user_name]
+                )
+                asyncio.create_task(run_ai_conversation_flow(next_turn))
 
     except WebSocketDisconnect:
-        pass
+        logger.info("👋 [SYSTEM] クライアントが切断しました。")
     except Exception as e:
         logger.error(f"❌ [SYSTEM] WebSocketループエラー: {e}")
         traceback.print_exc()

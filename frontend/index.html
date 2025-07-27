@@ -38,11 +38,12 @@
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
         let audioQueue = [], isPlaying = false, currentAiMessageElement = null, userName = "U";
-        let mediaRecorder, audioChunks = [], stream, analyser, dataArray, silenceTimer, isSpeaking = false, animationFrameId;
+        let mediaRecorder, audioChunks = [], stream;
         let isContinuousMode = false;
         let aiTurnFinished = true;
         let recognition;
         let userInputMode = 'audio';
+        let isFullAutoMode = false; // ★ 追加: 全自動モードフラグ
         let manualStop = false;
         let tempUserMessageElement = null;
 
@@ -59,11 +60,19 @@
                 case 'config':
                     userName = message.data.user_name;
                     document.title = `${userName} - AI Chat`;
-                    if (message.data.user_input_mode === 'text' || message.data.user_input_mode === 'browser') {
+                    userInputMode = message.data.user_input_mode;
+
+                    // ★ 修正: モードに応じてUIの初期状態を決定
+                    if (userInputMode === 'ai') {
+                        isFullAutoMode = true;
+                        disable_input(true); // isErrorフラグをtrueにして永続的に無効化
+                        update_status("main", "🤖 全自動モードで実行中...");
+                        micButton.style.display = 'none'; // マイクボタンを非表示
+                        sendButton.style.display = 'none'; // 送信ボタンを非表示
+                        messageInput.placeholder = "全自動モードです";
+                    } else if (userInputMode === 'text' || userInputMode === 'browser') {
                         userInputMode = 'browser';
                         initializeSpeechRecognition();
-                    } else {
-                        userInputMode = message.data.user_input_mode;
                     }
                     micButton.title = `常時音声入力 (${userInputMode === 'browser' ? 'ブラウザ認識' : 'サーバー認識'})`;
                     console.log(`GUI Input mode set to: ${userInputMode}`);
@@ -93,7 +102,7 @@
                     aiTurnFinished = false;
                     remove_status('speaker-decision');
                     update_status('ai_thinking', `🧠 ${message.data}が発言を考えています...`);
-                    if (message.data !== userName) {
+                    if (message.data !== userName || isFullAutoMode) { // AIモードではユーザーの発言もAIとして表示
                          currentAiMessageElement = append_message(message.data, '');
                     }
                     break;
@@ -104,7 +113,10 @@
                 
                 case 'utterance_end':
                     remove_status('ai_thinking');
-                    update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                    // AIモードでなければ、次の話者を決定中と表示
+                    if(!isFullAutoMode) {
+                        update_status('speaker-decision', '➡️ 次の話者を決めています...');
+                    }
                     currentAiMessageElement = null;
                     break;
 
@@ -191,11 +203,27 @@
         };
         const update_status = (id, text, timeout = 0) => { let el = document.getElementById(id); if (!el) { el = document.createElement('div'); el.id = id; el.className = 'status-item'; statusArea.appendChild(el); } el.textContent = text; if (timeout > 0) { setTimeout(() => { if (el) el.remove(); }, timeout); } };
         const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
-        const enable_input = (isManual = true) => { messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); } };
-        const disable_input = (isError = false) => { messageInput.disabled = true; sendButton.disabled = true; micButton.disabled = true; remove_status("main-prompt"); };
+        const enable_input = (isManual = true) => { 
+            if(isFullAutoMode) return; // ★ AIモードでは入力を有効にしない
+            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); } };
+        const disable_input = (isError = false) => { 
+            messageInput.disabled = true; 
+            sendButton.disabled = true; 
+            micButton.disabled = true; 
+            if(!isFullAutoMode) remove_status("main-prompt"); // ★ AIモードではメインプロンプトを消さない
+        };
 
-
-        const append_message = (name, text) => { const el = document.createElement('div'); el.classList.add('message', name === userName ? 'user-message' : 'ai-message'); el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight; return el; };
+        const append_message = (name, text) => { 
+            const isUser = name === userName;
+            // ★ AIモードではユーザーの発言もAIメッセージとして扱う
+            const messageClass = (isUser && !isFullAutoMode) ? 'user-message' : 'ai-message';
+            const el = document.createElement('div'); 
+            el.classList.add('message', messageClass);
+            el.innerHTML = `<strong class="name">${name}</strong><p>${text}</p>`; 
+            chatBox.appendChild(el); 
+            chatBox.scrollTop = chatBox.scrollHeight; 
+            return el; 
+        };
         const update_ai_message = (chunk) => { if (currentAiMessageElement) { currentAiMessageElement.querySelector('p').textContent += chunk; chatBox.scrollTop = chatBox.scrollHeight; } };
 
         const create_temp_user_message = () => {
@@ -279,7 +307,7 @@
         };
 
         const startRecording = async () => {
-            if (micButton.classList.contains('recording')) return;
+            if (isFullAutoMode || micButton.classList.contains('recording')) return;
             messageInput.disabled = true;
             sendButton.disabled = true;
 
@@ -305,7 +333,6 @@
                 try {
                     if (audioContext.state === 'suspended') { await audioContext.resume(); }
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    isSpeaking = false; silenceTimer = null;
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     audioChunks = [];
                     mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
@@ -346,10 +373,10 @@
             } else {
                 if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); }
                 if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
-                if (animationFrameId) { cancelAnimationFrame(animationFrameId); }
             }
         };
         micButton.onclick = () => {
+            if(isFullAutoMode) return;
             isContinuousMode = !isContinuousMode;
             micButton.classList.toggle('continuous-mode', isContinuousMode);
             if (isContinuousMode) {
