@@ -54,5 +54,4 @@ uv run ruff check --fix
 
 
 # TODO
-- 画像入力
-
+- Webカメラ
