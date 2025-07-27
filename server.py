@@ -219,15 +219,8 @@ async def run_ai_conversation_flow(
     initial_turn: str, webcam_capture: str | None = None
 ):
     turn = initial_turn
-    # 最初のターンのみWebカメラ画像を渡す
-    await run_single_turn(turn, webcam_capture)
-    turn = await asyncio.to_thread(
-        ctx.llms.get_next_speaker, list(history), except_names=[turn]
-    )
-
     while turn != ctx.llmcfg.user_name:
-        # 2ターン目以降はWebカメラ画像を渡さない
-        await run_single_turn(turn)
+        await run_single_turn(turn, webcam_capture)
         turn = await asyncio.to_thread(
             ctx.llms.get_next_speaker, list(history), except_names=[turn]
         )

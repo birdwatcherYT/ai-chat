@@ -24,8 +24,6 @@ body {
     min-width: 400px;
     height: 100%;
     border: none;
-    /* border-right: 1px solid #ccc; */
-    /* ★ 修正: 境界線は右パネルコンテナに移動 */
     box-shadow: none;
     display: flex;
     flex-direction: column;
@@ -202,7 +200,7 @@ body {
     border-left: 1px solid #ccc;
 }
 
-/* ★ 修正: flexとborderを調整 */
+/* flexとborderを調整 */
 #image-panel,
 #webcam-panel {
     flex: 1;

@@ -141,7 +141,7 @@ class LLMs:
         # webcam_captureが存在する場合、プロンプトに追加
         if webcam_capture:
             multimodal_history.append(
-                {"type": "text", "text": "\n# 現在のWebカメラ映像"}
+                {"type": "text", "text": "\n\n# 現在のWebカメラ映像"}
             )
             multimodal_history.append(
                 {"type": "image_url", "image_url": {"url": webcam_capture}}
