@@ -91,7 +91,7 @@ body {
     padding: 5px 15px;
     font-size: 0.8em;
     color: #666;
-    min-height: 22px; /* 高さを確保してガタツキ防止 */
+    min-height: 22px; 
 }
 .status-item {
     margin-bottom: 2px;
@@ -152,12 +152,10 @@ body {
     cursor: pointer;
     font-size: 16px;
 }
-
 #send-button:hover {
     background-color: #0056b3;
 }
 
-/* ★ 修正: 添付ボタンのスタイルを明確に定義 */
 #attach-button {
     border: none;
     background-color: #6c757d;
@@ -209,12 +207,11 @@ body {
     transition: opacity 0.5s ease-in-out;
 }
 
-/* ★ 修正: マイクボタンから不要なpaddingを削除 */
 #mic-button {
     border: none;
     background-color: #6c757d;
     color: white;
-    padding: 0; /* paddingを削除 */
+    padding: 0;
     border-radius: 50%;
     cursor: pointer;
     font-size: 18px;
@@ -223,7 +220,6 @@ body {
     height: 48px;
     flex-shrink: 0;
     transition: background-color 0.2s;
-    /* ★ 追加: アイコンを中央に配置 */
     display: flex;
     align-items: center;
     justify-content: center;
