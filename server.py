@@ -23,8 +23,7 @@ logger = get_logger(__name__, level=logging.INFO)
 app = FastAPI()
 
 ctx: AppContext | None = None
-history: list[dict[str, str]] | None = None
-session_images: list[str] = [] # ★ 追加: セッションごとの画像履歴
+history: list[dict] | None = None  # ★ 修正: 型ヒントを一般的なdictに
 
 llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
@@ -36,27 +35,37 @@ def load_config_and_init():
         config = load_config()
         ctx = AppContext(config)
         history = list(ctx.initial_history)
-        app.mount(ctx.cfg.chat.image.url_path, StaticFiles(directory=ctx.cfg.chat.image.save_dir), name="images")
+        app.mount(
+            ctx.cfg.chat.image.url_path,
+            StaticFiles(directory=ctx.cfg.chat.image.save_dir),
+            name="images",
+        )
         app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
         logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
     except Exception as e:
         logger.error(f"❌ [SYSTEM] 初期化エラー: {e}")
         traceback.print_exc()
 
+
 class ConnectionManager:
     _instance = None
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
+
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+
     async def send_json(self, data: dict):
         if self.active_connections:
             try:
@@ -64,29 +73,50 @@ class ConnectionManager:
             except Exception:
                 pass
 
+
 manager = ConnectionManager()
 
-def llm_stream_blocking_task(turn: str, current_history: list, loop: asyncio.AbstractEventLoop, image_data_list: list[str] | None = None):
+
+# ★ 修正: image_data_list引数を削除
+def llm_stream_blocking_task(
+    turn: str, current_history: list, loop: asyncio.AbstractEventLoop
+):
     full_response, answer_segment = "", ""
     try:
-        utter_chain = ctx.llms.get_utter_chain(image_data_list=image_data_list)
-        utter_prompt_vars = {"speaker": turn, "messages": history_to_text(current_history)}
-        for chunk in utter_chain.stream(utter_prompt_vars):
-            content = getattr(chunk, 'content', '')
+        # ★ 修正: get_utter_chainは引数なしで呼び出す
+        utter_chain = ctx.llms.get_utter_chain(current_history)
+        # ★ 修正: invoke/streamに完全なhistoryを渡す
+        # utter_prompt_vars = {"speaker": turn, "history": current_history}
+        utter_prompt_vars = {"speaker": turn}
+        for content in utter_chain.stream(utter_prompt_vars):
             full_response += content
             answer_segment += content
-            asyncio.run_coroutine_threadsafe(manager.send_json({"type": "chunk", "data": {"name": turn, "content": content}}), loop)
-            if answer_segment and answer_segment[-1] in ctx.cfg.chat.streaming_voice_output:
-                asyncio.run_coroutine_threadsafe(llm_text_queue.put((turn, answer_segment)), loop)
+            asyncio.run_coroutine_threadsafe(
+                manager.send_json(
+                    {"type": "chunk", "data": {"name": turn, "content": content}}
+                ),
+                loop,
+            )
+            if (
+                answer_segment
+                and answer_segment[-1] in ctx.cfg.chat.streaming_voice_output
+            ):
+                asyncio.run_coroutine_threadsafe(
+                    llm_text_queue.put((turn, answer_segment)), loop
+                )
                 answer_segment = ""
         if answer_segment:
-            asyncio.run_coroutine_threadsafe(llm_text_queue.put((turn, answer_segment)), loop)
-        return {"name": turn, "content": full_response}
+            asyncio.run_coroutine_threadsafe(
+                llm_text_queue.put((turn, answer_segment)), loop
+            )
+        # ★ 修正: historyに追加するのはテキストのみ
+        return {"name": turn, "type": "text", "content": full_response}
     except Exception:
         traceback.print_exc()
         return None
     finally:
         asyncio.run_coroutine_threadsafe(llm_text_queue.put(None), loop)
+
 
 async def synthesis_consumer():
     while True:
@@ -99,11 +129,14 @@ async def synthesis_consumer():
         if not voice_config or not voice_config.engine:
             continue
         try:
-            data, sr = await ctx.tts_engines[voice_config.engine].synthesize_async(text, **vars(voice_config.config))
+            data, sr = await ctx.tts_engines[voice_config.engine].synthesize_async(
+                text, **vars(voice_config.config)
+            )
             if data is not None and sr is not None:
                 await audio_data_queue.put((data, sr, str(data.dtype)))
         except Exception as e:
             logger.error(f"❌ [SYNTH] 音声合成エラー: {e}")
+
 
 async def audio_sender_consumer():
     while True:
@@ -113,37 +146,67 @@ async def audio_sender_consumer():
         data, sr, dtype = task
         try:
             encoded_audio = base64.b64encode(data.tobytes()).decode("utf-8")
-            await manager.send_json({"type": "audio", "data": {"audio": encoded_audio, "samplerate": sr, "dtype": dtype}})
+            await manager.send_json(
+                {
+                    "type": "audio",
+                    "data": {"audio": encoded_audio, "samplerate": sr, "dtype": dtype},
+                }
+            )
         except Exception:
             pass
 
+
 async def image_generation_task(current_history):
     task_id = "image_gen"
-    await manager.send_json({"type": "status_update", "data": {"id": task_id, "text": "🎨 画像を生成しています..."}})
+    await manager.send_json(
+        {
+            "type": "status_update",
+            "data": {"id": task_id, "text": "🎨 画像を生成しています..."},
+        }
+    )
     try:
-        image_url, _ = await asyncio.to_thread(ctx.img_generator.generate_image, current_history, ctx.cfg.chat.image.edit)
+        # 画像生成にはテキスト化された履歴を渡す
+        image_url, _ = await asyncio.to_thread(
+            ctx.img_generator.generate_image,
+            history_to_text(current_history),
+            ctx.cfg.chat.image.edit,
+        )
         if image_url:
             await manager.send_json({"type": "image", "url": image_url})
     except Exception as e:
         logger.error(f"❌ [IMAGE] 画像生成中にエラーが発生しました: {e}")
-        await manager.send_json({"type": "status_update", "data": {"id": f"{task_id}_error", "text": "🎨 画像の生成に失敗しました。"}})
+        await manager.send_json(
+            {
+                "type": "status_update",
+                "data": {
+                    "id": f"{task_id}_error",
+                    "text": "🎨 画像の生成に失敗しました。",
+                },
+            }
+        )
         await asyncio.sleep(3)
-        await manager.send_json({"type": "status_remove", "data": {"id": f"{task_id}_error"}})
+        await manager.send_json(
+            {"type": "status_remove", "data": {"id": f"{task_id}_error"}}
+        )
     finally:
         await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
-async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop, image_data_list: list[str] | None = None):
-    llm_task = asyncio.to_thread(llm_stream_blocking_task, turn, list(history), loop, image_data_list)
+
+# ★ 修正: image_data_list引数を削除
+async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
+    llm_task = asyncio.to_thread(llm_stream_blocking_task, turn, list(history), loop)
     audio_task = asyncio.gather(synthesis_consumer(), audio_sender_consumer())
     results = await asyncio.gather(llm_task, audio_task)
     return results[0]
 
-async def run_single_turn(turn: str, image_data_list: list[str] | None = None):
+
+# ★ 修正: image_data_list引数を削除
+async def run_single_turn(turn: str):
     global history
     loop = asyncio.get_running_loop()
     history_len_before_turn = len(history)
     await manager.send_json({"type": "next_speaker", "data": turn})
-    main_response = await main_pipeline_task(turn, loop, image_data_list)
+    main_response = await main_pipeline_task(turn, loop)
     await manager.send_json({"type": "utterance_end", "data": turn})
     if main_response:
         history.append(main_response)
@@ -152,13 +215,17 @@ async def run_single_turn(turn: str, image_data_list: list[str] | None = None):
         if (history_len_before_turn // interval) < (history_len_after_turn // interval):
             asyncio.create_task(image_generation_task(list(history)))
 
+
+# ★ 修正: image_data引数を削除
 async def run_ai_conversation_flow(initial_turn: str):
     turn = initial_turn
     while turn != ctx.llmcfg.user_name:
-        # ★ 修正: 常にセッション全体の画像リストを渡す
-        await run_single_turn(turn, image_data_list=session_images)
-        turn = await asyncio.to_thread(ctx.llms.get_next_speaker, list(history), except_names=[turn])
+        await run_single_turn(turn)
+        turn = await asyncio.to_thread(
+            ctx.llms.get_next_speaker, list(history), except_names=[turn]
+        )
     await manager.send_json({"type": "conversation_end"})
+
 
 async def process_user_audio(audio_bytes: bytes) -> str:
     if not ctx.asr_engine:
@@ -166,40 +233,58 @@ async def process_user_audio(audio_bytes: bytes) -> str:
         return ""
     try:
         audio_segment = AudioSegment.from_file(BytesIO(audio_bytes), format="webm")
-        audio_segment = audio_segment.set_frame_rate(16000).set_sample_width(2).set_channels(1)
+        audio_segment = (
+            audio_segment.set_frame_rate(16000).set_sample_width(2).set_channels(1)
+        )
         pcm_audio_bytes = audio_segment.raw_data
         logger.info(f"🎤 [DECODE] 音声デコード成功: {len(pcm_audio_bytes)} bytes")
-        user_message = await asyncio.to_thread(ctx.asr_engine.process_audio, pcm_audio_bytes)
+        user_message = await asyncio.to_thread(
+            ctx.asr_engine.process_audio, pcm_audio_bytes
+        )
         return user_message
     except Exception as e:
         logger.error(f"❌ [ASR] 音声処理中にエラー: {e}")
         traceback.print_exc()
         return ""
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    global history, session_images
-    # ★ 修正: 新しい接続のためにセッションデータをリセット
+    global history
+    # 新しい接続ごとにセッションデータをリセット
     history = list(ctx.initial_history)
-    session_images = []
-    
+
     if ctx is None:
         logger.error("❌ [SYSTEM] アプリケーションが初期化されていません。")
         await websocket.close(code=1011, reason="Server not initialized")
         return
 
-    await manager.send_json({"type": "config", "data": {"user_input_mode": ctx.cfg.chat.user.input, "user_name": ctx.llmcfg.user_name}})
+    await manager.send_json(
+        {
+            "type": "config",
+            "data": {
+                "user_input_mode": ctx.cfg.chat.user.input,
+                "user_name": ctx.llmcfg.user_name,
+            },
+        }
+    )
     for message in history:
-        await manager.send_json({"type": "history", "data": message})
+        # フロントエンドにはテキスト化された履歴を送信
+        text_message = {"name": message["name"], "content": message["content"]}
+        if message["type"] == "image":
+            text_message["content"] = "(画像添付)"
+        await manager.send_json({"type": "history", "data": text_message})
 
     try:
         if ctx.cfg.chat.user.input == "ai":
             logger.info("🤖 [SYSTEM] 全自動AIモードで起動します。")
             turn = ctx.initial_turn
             while True:
-                await run_single_turn(turn, image_data_list=session_images)
-                turn = await asyncio.to_thread(ctx.llms.get_next_speaker, list(history), except_names=[])
+                await run_single_turn(turn)
+                turn = await asyncio.to_thread(
+                    ctx.llms.get_next_speaker, list(history), except_names=[]
+                )
                 await asyncio.sleep(1)
         else:
             initial_turn = ctx.initial_turn
@@ -207,12 +292,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 await run_ai_conversation_flow(initial_turn)
             else:
                 await manager.send_json({"type": "conversation_end"})
-            
+
             while True:
                 raw_message = await websocket.receive()
                 user_message_text = ""
                 user_message_image = None
-                
+
                 if "text" in raw_message:
                     try:
                         data = json.loads(raw_message["text"])
@@ -222,20 +307,35 @@ async def websocket_endpoint(websocket: WebSocket):
                         user_message_text = raw_message["text"]
                 elif "bytes" in raw_message:
                     user_message_text = await process_user_audio(raw_message["bytes"])
-                    await manager.send_json({"type": "user_transcription", "data": user_message_text})
+                    await manager.send_json(
+                        {"type": "user_transcription", "data": user_message_text}
+                    )
 
                 if not user_message_text and not user_message_image:
                     continue
 
-                # 画像がある場合の処理
-                if user_message_image:
-                    session_images.append(user_message_image)
-                    user_message_text += "\n(画像添付)"
-
                 user_name = ctx.llmcfg.user_name
-                history.append({"name": user_name, "content": user_message_text})
+                # ★ 修正: 新しいhistory形式で追加
+                if user_message_text:
+                    history.append(
+                        {
+                            "name": user_name,
+                            "type": "text",
+                            "content": user_message_text,
+                        }
+                    )
+                if user_message_image:
+                    history.append(
+                        {
+                            "name": user_name,
+                            "type": "image",
+                            "content": user_message_image,
+                        }
+                    )
 
-                next_turn = await asyncio.to_thread(ctx.llms.get_next_speaker, list(history), except_names=[user_name])
+                next_turn = await asyncio.to_thread(
+                    ctx.llms.get_next_speaker, list(history), except_names=[user_name]
+                )
                 asyncio.create_task(run_ai_conversation_flow(next_turn))
 
     except WebSocketDisconnect:
@@ -245,6 +345,7 @@ async def websocket_endpoint(websocket: WebSocket):
         traceback.print_exc()
     finally:
         manager.disconnect(websocket)
+
 
 @app.get("/")
 async def read_root():

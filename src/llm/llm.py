@@ -3,7 +3,6 @@ import os
 import random
 from typing import Literal
 
-from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -28,24 +27,26 @@ class LLMs:
         self.speaker_prompt_template = self.get_speaker_prompt_template()
 
     def get_speaker_prompt_template(self) -> PromptTemplate:
+        # この関数はhistory_to_textを使うので、修正は不要
         prompt = PromptTemplate.from_template(
             """次に発話するべき話者名を出力してください。
-# 出力候補
-```json
-{char_names}
-```
+
 # キャラクター情報
-{user_name}
-{user_character}
+{user_prompt}
 {chara_prompt}
+
 # 会話履歴
 ```json
 {messages}
 ```
+
+# 出力候補
+```json
+{char_names}
+```
 """,
             partial_variables={
-                "user_name": self.llmcfg.user_name,
-                "user_character": self.llmcfg.user_character,
+                "user_prompt": self.llmcfg.user_prompt,
                 "chara_prompt": self.llmcfg.chara_prompt,
                 "char_names": json.dumps(self.llmcfg.char_names, ensure_ascii=False),
             },
@@ -55,6 +56,7 @@ class LLMs:
     def get_next_speaker(
         self, history: list[dict[str, str]], except_names: list[str] = None
     ) -> str:
+        # この関数もhistory_to_textを使うので、修正は不要
         if except_names is None:
             except_names = []
         candidates = [c for c in self.llmcfg.char_names if c not in except_names]
@@ -86,70 +88,73 @@ class LLMs:
         return result.speaker
 
     def get_situation_chain(self):
+        # この関数もhistory_to_textを使うので、修正は不要
         prompt = PromptTemplate.from_template(
             """**会話履歴**を元に今の状況を表す説明を**英語**で出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
+
 # キャラクター情報
-{user_name}
-{user_character}
+{user_prompt}
 {chara_prompt}
+
 # 会話履歴
 ```json
 {messages}
 ```
 """,
             partial_variables={
-                "user_name": self.llmcfg.user_name,
-                "user_character": self.llmcfg.user_character,
+                "user_character": self.llmcfg.user_prompt,
                 "chara_prompt": self.llmcfg.chara_prompt,
             },
         )
         return prompt | self.llm | StrOutputParser()
 
-    def get_utter_chain(self, image_data_list: list[str] | None = None):
+    # get_utter_chain全体を新しいロジックに置き換え
+    def get_utter_chain(self, history: list):
         """
         発言生成のためのチェーンを取得する。
-        画像データがある場合はマルチモーダルプロンプトを構築する。
+        このチェーンは、渡されるhistoryを解釈し、動的にマルチモーダルプロンプトを構築する。
         """
-        prompt_text = """**会話履歴**に続く{speaker}の次の発言を生成してください。発話内容だけを出力してください。
+        # 1. ベースとなる指示テキストのテンプレート
+        instruction_template = """**キャラクター情報**を踏まえ、**会話履歴**に続く**{speaker}**の次の発言を生成してください。発話内容だけを出力してください。
+
 # キャラクター情報
-{user_name}
-{user_character}
+{user_prompt}
 {chara_prompt}
+
 # 会話履歴
-```json
-{messages}
-```
 """
-        if image_data_list:
-            # HumanMessageの「内容のテンプレート」を作成
-            human_message_content_template = [
-                {"type": "text", "text": prompt_text},
-                {"type": "text", "text": "以下は会話の中で添付された画像です。"},
-            ]
-            for image_data in image_data_list:
-                human_message_content_template.append(
-                    {"type": "image_url", "image_url": {"url": image_data}}
+
+        # 2. メッセージ(history)を動的に構築する関数
+        # 履歴をHumanMessageのcontent形式に変換
+        multimodal_history = [{"type": "text", "text": instruction_template}]
+        for item in history:
+            if item["type"] == "text":
+                escaped_content = json.dumps(item["content"], ensure_ascii=False).strip(
+                    '"'
                 )
+                multimodal_history.append(
+                    {
+                        "type": "text",
+                        "text": f"{item['name']}: {escaped_content}",
+                    }
+                )
+            elif item["type"] == "image":
+                multimodal_history.append(
+                    {"type": "image_url", "image_url": {"url": item["content"]}}
+                )
+        # TODO: 構造化出力にして削除する
+        multimodal_history.append({"type": "text", "text": "{speaker}: "})
 
-            # (役割, 内容テンプレート) のタプル形式でChatPromptTemplateを初期化
-            chat_prompt = ChatPromptTemplate.from_messages(
-                [("human", human_message_content_template)]
-            )
+        # 3. ChatPromptTemplateを関数から生成
+        # NOTE: HumanMessageを使うと変数が展開されない
+        prompt_template = ChatPromptTemplate.from_messages(
+            [("human", multimodal_history)]
+        )
 
-            partial_prompt = chat_prompt.partial(
-                user_name=self.llmcfg.user_name,
-                user_character=self.llmcfg.user_character,
-                chara_prompt=self.llmcfg.chara_prompt,
-            )
-            return partial_prompt | self.llm
+        # 4. 部分変数を適用
+        partial_prompt = prompt_template.partial(
+            user_prompt=self.llmcfg.user_prompt,
+            chara_prompt=self.llmcfg.chara_prompt,
+        )
 
-        else:
-            utter_prompt_template = PromptTemplate.from_template(
-                prompt_text,
-                partial_variables={
-                    "user_name": self.llmcfg.user_name,
-                    "user_character": self.llmcfg.user_character,
-                    "chara_prompt": self.llmcfg.chara_prompt,
-                },
-            )
-            return utter_prompt_template | self.llm
+        return partial_prompt | self.llm | StrOutputParser()
