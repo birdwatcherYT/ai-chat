@@ -23,7 +23,6 @@
                 <button id="send-button" disabled>送信</button>
                 <button id="mic-button" title="常時音声入力モードの切り替え" disabled>🎤</button>
                 <button id="webcam-button" title="WebカメラのON/OFF">📷</button>
-                <!-- ★ 削除: 圧縮オプションを移動するため削除 -->
             </div>
         </div>
         <div id="right-panels-container">
@@ -32,10 +31,10 @@
             </div>
             <div id="webcam-panel" data-state="off">
                 <video id="webcam-video" autoplay playsinline muted></video>
-                <!-- ★ 新設: 画質調整UI -->
+                <!-- スケール調整UI -->
                 <div id="webcam-controls">
-                    <label for="quality-slider">画質: <span id="quality-value">30</span>%</label>
-                    <input type="range" id="quality-slider" min="10" max="100" value="30" step="10">
+                    <label for="scale-slider">送信サイズ: <span id="scale-value">50</span>%</label>
+                    <input type="range" id="scale-slider" min="10" max="100" value="50" step="5">
                 </div>
             </div>
         </div>
@@ -57,9 +56,9 @@
         const webcamButton = document.getElementById('webcam-button');
         const webcamPanel = document.getElementById('webcam-panel');
         const webcamVideo = document.getElementById('webcam-video');
-        // 画質スライダー関連の要素を取得
-        const qualitySlider = document.getElementById('quality-slider');
-        const qualityValueLabel = document.getElementById('quality-value');
+        // スケールスライダー関連の要素を取得
+        const scaleSlider = document.getElementById('scale-slider');
+        const scaleValueLabel = document.getElementById('scale-value');
 
 
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -102,7 +101,6 @@
                         sendButton.style.display = 'none';
                         attachButton.style.display = 'none';
                         webcamButton.style.display = 'none';
-                        // document.getElementById('compression-control').style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
                     } else if (userInputMode === 'text' || userInputMode === 'browser') {
                         userInputMode = 'browser';
@@ -341,14 +339,20 @@
             let webcamCapture = null;
 
             if (isWebcamOn && webcamStream) {
+                const video = webcamVideo;
                 const canvas = document.createElement('canvas');
-                canvas.width = webcamVideo.videoWidth;
-                canvas.height = webcamVideo.videoHeight;
-                canvas.getContext('2d').drawImage(webcamVideo, 0, 0, canvas.width, canvas.height);
 
-                // スライダーの値を取得して品質を決定
-                const quality = parseInt(qualitySlider.value) / 100;
-                webcamCapture = canvas.toDataURL('image/jpeg', quality);
+                // スケール（縮小率）でキャンバスサイズを決定
+                const scale = parseInt(scaleSlider.value) / 100;
+                const targetWidth = Math.round(video.videoWidth * scale);
+                const targetHeight = Math.round(video.videoHeight * scale);
+
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+
+                canvas.getContext('2d').drawImage(video, 0, 0, targetWidth, targetHeight);
+
+                webcamCapture = canvas.toDataURL('image/jpeg');
             }
 
             if (text.trim() || image || webcamCapture) {
@@ -511,8 +515,8 @@
         };
 
         // スライダーの値をラベルに反映するイベントリスナー
-        qualitySlider.addEventListener('input', (e) => {
-            qualityValueLabel.textContent = e.target.value;
+        scaleSlider.addEventListener('input', (e) => {
+            scaleValueLabel.textContent = e.target.value;
         });
 
 

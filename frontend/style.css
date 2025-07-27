@@ -234,7 +234,6 @@ body {
     display: none;
 }
 
-/* ★ 新設: WebカメラOFF時にコントロールも非表示にする */
 #webcam-panel[data-state="off"] #webcam-controls {
     display: none;
 }
@@ -248,16 +247,13 @@ body {
     object-fit: contain;
     transition: opacity 0.5s ease-in-out;
     flex-grow: 1;
-    /* ★ 新設: 映像エリアが可能な限り大きくなるように */
     min-height: 0;
-    /* ★ 新設: 縮小を許可 */
 }
 
 #webcam-panel #webcam-video {
     transform: scaleX(-1);
 }
 
-/* ★ 新設: Webカメラコントロールのスタイル */
 #webcam-controls {
     width: 100%;
     padding: 10px 5px 0 5px;
