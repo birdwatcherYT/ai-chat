@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import logging
 import traceback
 from io import BytesIO
@@ -207,35 +208,26 @@ async def run_ai_conversation_flow(initial_turn: str):
     loop = asyncio.get_running_loop()
     turn = initial_turn
 
-    # 次のターンがユーザーになるまでループ
     while turn != ctx.llmcfg.user_name:
         history_len_before_turn = len(history)
 
-        # 1. これから話す人を通知
         await manager.send_json({"type": "next_speaker", "data": turn})
-        
-        # 2. その人の発言を生成・送信
         main_response = await main_pipeline_task(turn, loop)
-
-        # 3. 発言が終わったことを通知
         await manager.send_json({"type": "utterance_end", "data": turn})
 
         if main_response:
             history.append(main_response)
 
-            # 画像生成チェック (history更新後)
             history_len_after_turn = len(history)
             interval = ctx.cfg.chat.image.interval
             if (history_len_before_turn // interval) < (history_len_after_turn // interval):
                 asyncio.create_task(image_generation_task(list(history)))
 
-        # 4. 内部で次の話者を決定
         next_turn = await asyncio.to_thread(
             ctx.llms.get_next_speaker, list(history), except_names=[turn]
         )
         turn = next_turn
 
-    # 5. AIの連続会話が終了したことを通知
     await manager.send_json({"type": "conversation_end"})
 
 
@@ -288,16 +280,23 @@ async def websocket_endpoint(websocket: WebSocket):
     if initial_turn != ctx.llmcfg.user_name:
         asyncio.create_task(run_ai_conversation_flow(initial_turn))
     else:
-        # 初期ターンがユーザーの場合でも conversation_end を送り、UIを正しく有効化する
         await manager.send_json({"type": "conversation_end"})
 
     try:
         while True:
             message = await websocket.receive()
             user_message = ""
-            if "text" in message:
-                user_message = message["text"]
-            elif "bytes" in message:
+
+            # テキストメッセージをJSONとして解析する
+            if "text" in message and message["text"] is not None:
+                try:
+                    data = json.loads(message["text"])
+                    user_message = data.get("text", "")
+                except (json.JSONDecodeError, TypeError):
+                    # JSONでない場合は、そのままテキストとして扱う（フォールバック）
+                    user_message = message["text"]
+            
+            elif "bytes" in message and message["bytes"] is not None:
                 user_message = await process_user_audio(message["bytes"])
                 await manager.send_json(
                     {"type": "user_transcription", "data": user_message}
@@ -309,11 +308,9 @@ async def websocket_endpoint(websocket: WebSocket):
             user_name = ctx.llmcfg.user_name
             history.append({"name": user_name, "content": user_message})
 
-            # 内部で次の話者を決定
             next_turn = await asyncio.to_thread(
                 ctx.llms.get_next_speaker, list(history), except_names=[user_name]
             )
-            # AIの会話フローを開始するタスクを作成
             asyncio.create_task(run_ai_conversation_flow(next_turn))
 
     except WebSocketDisconnect:
