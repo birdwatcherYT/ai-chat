@@ -23,7 +23,8 @@ logger = get_logger(__name__, level=logging.INFO)
 app = FastAPI()
 
 ctx: AppContext | None = None
-history: list[dict] | None = None  # ★ 修正: 型ヒントを一般的なdictに
+# {"name": "string", "content": "string/base64", "type": "text/image"}
+history: list[dict] | None = None
 
 llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
@@ -77,15 +78,15 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# ★ 修正: image_data_list引数を削除
+# image_data_list引数を削除
 def llm_stream_blocking_task(
     turn: str, current_history: list, loop: asyncio.AbstractEventLoop
 ):
     full_response, answer_segment = "", ""
     try:
-        # ★ 修正: get_utter_chainは引数なしで呼び出す
+        # get_utter_chainは引数なしで呼び出す
         utter_chain = ctx.llms.get_utter_chain(current_history)
-        # ★ 修正: invoke/streamに完全なhistoryを渡す
+        # invoke/streamに完全なhistoryを渡す
         # utter_prompt_vars = {"speaker": turn, "history": current_history}
         utter_prompt_vars = {"speaker": turn}
         for content in utter_chain.stream(utter_prompt_vars):
@@ -109,7 +110,7 @@ def llm_stream_blocking_task(
             asyncio.run_coroutine_threadsafe(
                 llm_text_queue.put((turn, answer_segment)), loop
             )
-        # ★ 修正: historyに追加するのはテキストのみ
+        # historyに追加するのはテキストのみ
         return {"name": turn, "type": "text", "content": full_response}
     except Exception:
         traceback.print_exc()
@@ -192,7 +193,7 @@ async def image_generation_task(current_history):
         await manager.send_json({"type": "status_remove", "data": {"id": task_id}})
 
 
-# ★ 修正: image_data_list引数を削除
+# image_data_list引数を削除
 async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
     llm_task = asyncio.to_thread(llm_stream_blocking_task, turn, list(history), loop)
     audio_task = asyncio.gather(synthesis_consumer(), audio_sender_consumer())
@@ -200,7 +201,7 @@ async def main_pipeline_task(turn: str, loop: asyncio.AbstractEventLoop):
     return results[0]
 
 
-# ★ 修正: image_data_list引数を削除
+# image_data_list引数を削除
 async def run_single_turn(turn: str):
     global history
     loop = asyncio.get_running_loop()
@@ -216,7 +217,7 @@ async def run_single_turn(turn: str):
             asyncio.create_task(image_generation_task(list(history)))
 
 
-# ★ 修正: image_data引数を削除
+# image_data引数を削除
 async def run_ai_conversation_flow(initial_turn: str):
     turn = initial_turn
     while turn != ctx.llmcfg.user_name:
@@ -315,7 +316,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     continue
 
                 user_name = ctx.llmcfg.user_name
-                # ★ 修正: 新しいhistory形式で追加
+                # 新しいhistory形式で追加
                 if user_message_text:
                     history.append(
                         {

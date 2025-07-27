@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from src.app_context import AppContext
 from src.asr.base import SpeechToText
 from src.img.base import ImageGenerator
-from src.llm.common import LLMConfig, history_to_text
+from src.llm.common import LLMConfig
 from src.llm.llm import LLMs
 from src.logger import get_logger
 from src.tts.base import TextToSpeech

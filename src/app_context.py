@@ -90,11 +90,14 @@ class AppContext:
         user_input_mode = self.cfg.chat.user.input
         if user_input_mode == "vosk":
             from .asr.vosk_asr import VoskASR
+
             return VoskASR(**vars(self.cfg.vosk))
         if user_input_mode == "whisper":
             from .asr.whisper_asr import WhisperASR
+
             return WhisperASR(**vars(self.cfg.whisper), **vars(self.cfg.webrtcvad))
         if user_input_mode == "gemini":
             from .asr.gemini_asr import GeminiASR
+
             return GeminiASR(self.cfg.gemini.model, **vars(self.cfg.webrtcvad))
         return None
