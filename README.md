@@ -7,6 +7,20 @@
 - 画像添付/Webカメラ対応
 - 音声認識 / 音声合成
 
+## フォルダ構成
+```
+.
+├── config.yaml: 設定ファイル
+├── run.py: ランナー
+├── main.py: CLI
+├── server.py: バックエンド
+├── frontend/: フロントエンド
+├── src/: ソースコード一式
+├── .env.sample: 環境変数サンプル
+├── pyproject.toml
+└── uv.lock
+```
+
 ## 環境構築
 - `uv sync`
     - pythonと[uv](https://github.com/astral-sh/uv)インストール済みであることが前提

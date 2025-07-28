@@ -58,7 +58,7 @@ class VadBasedASR(SpeechToText):
         raise NotImplementedError
 
     def audio_input(self) -> str:
-        """マイク入力から音声を認識し、テキストを返す"""
+        """マイク入力から音声を認識し、テキストを返す（CLI用）"""
         silence_counter = 0
 
         with sd.RawInputStream(
