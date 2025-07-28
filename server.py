@@ -305,6 +305,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message_text = ""
                 user_message_image = None
                 webcam_capture = None
+                is_from_audio = False  # 音声入力由来かどうかのフラグ
 
                 if "text" in raw_message:
                     try:
@@ -315,18 +316,25 @@ async def websocket_endpoint(websocket: WebSocket):
                     except (json.JSONDecodeError, TypeError):
                         user_message_text = raw_message["text"]
                 elif "bytes" in raw_message:
+                    is_from_audio = True
                     user_message_text = await process_user_audio(raw_message["bytes"])
+                    # 認識結果をクライアントに通知してUIを更新させる
                     await manager.send_json(
                         {"type": "user_transcription", "data": user_message_text}
                     )
 
+                # メッセージ内容が空（音声認識失敗含む）なら何もしない
                 if (
                     not user_message_text
                     and not user_message_image
                     and not webcam_capture
                 ):
+                    # 音声認識が失敗した場合、クライアントの入力を再度有効にする
+                    if is_from_audio:
+                        await manager.send_json({"type": "conversation_end"})
                     continue
 
+                # --- 以下、テキスト/音声認識成功時の共通処理 ---
                 user_name = ctx.llmcfg.user_name
 
                 # historyにはテキストと添付画像のみを追加
@@ -352,7 +360,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     list(history),
                     last_speaker=user_name,
                 )
-                # webcam_captureを渡す
+                # webcam_captureを渡してAIの応答フローを開始
                 asyncio.create_task(run_ai_conversation_flow(next_turn, webcam_capture))
 
     except WebSocketDisconnect:

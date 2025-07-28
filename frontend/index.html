@@ -77,6 +77,10 @@
         // Webカメラ関連の状態
         let isWebcamOn = false;
         let webcamStream = null;
+        // VAD (無音検出) 関連
+        let silenceDetectionTimer = null;
+        let audioStreamSource = null;
+
 
         ws.onopen = () => { /* 初期化は onmessage の config で行う */ };
         ws.onclose = () => { update_status("main", "サーバーとの接続が切れました。"); disable_input(true); }
@@ -111,19 +115,15 @@
                     break;
 
                 case 'user_transcription':
+                    // [MODIFIED] バグ修正: サーバーから認識結果が来たらUIに表示するだけにする
+                    // 以前は `sendUserMessage` で再度サーバーにテキストを送っていたため、二重に応答が生成されていた。
                     remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
-                        // テキストのみを渡す
-                        sendUserMessage(message.data);
-                    } else {
-                        update_status('asr-failed', '音声を認識できませんでした。', 2000);
-                        if (isContinuousMode) {
-                            setTimeout(startRecording, 100);
-                        } else {
-                            enable_input();
-                        }
+                        // 認識されたテキストをチャットボックスに表示
+                        append_message(userName, message.data);
                     }
+                    // 認識失敗時の処理はサーバー側で conversation_end を送ることでハンドルされる
                     break;
 
                 case 'history':
@@ -413,19 +413,33 @@
                 } catch (e) {
                     console.warn("Recognition might be already active:", e);
                 }
-            } else {
-                if (stream) {
-                    stream.getAudioTracks().forEach(track => {
-                        if (!track.enabled) { track.enabled = true; console.log("🎤 Mic Unmuted for recording (Server ASR)"); }
-                    });
-                }
+            } else { // サーバーサイドASRの場合
                 try {
                     if (audioContext.state === 'suspended') { await audioContext.resume(); }
-                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                    if (!stream || !stream.active) {
+                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    }
+
+                    if (stream.getAudioTracks().some(track => !track.enabled)) {
+                        stream.getAudioTracks().forEach(track => { track.enabled = true; });
+                        console.log("🎤 Mic Unmuted for recording (Server ASR)");
+                    }
+
                     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     audioChunks = [];
                     mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
                     mediaRecorder.onstop = () => {
+                        // VADタイマーをクリア
+                        if (silenceDetectionTimer) {
+                            cancelAnimationFrame(silenceDetectionTimer);
+                            silenceDetectionTimer = null;
+                        }
+                        if (audioStreamSource) {
+                            audioStreamSource.disconnect();
+                            audioStreamSource = null;
+                        }
+
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         if (audioBlob.size > 1000) {
                             ws.send(audioBlob);
@@ -433,15 +447,51 @@
                             create_temp_user_message();
                             update_status('asr-server', 'サーバーで音声を認識中...');
                         } else {
+                            // データが小さすぎる場合(VAD誤作動など)は、そのまま再開
                             remove_temp_user_message();
                             if (isContinuousMode) {
-                                startRecording();
+                                setTimeout(startRecording, 100);
                             } else {
                                 enable_input();
                             }
                         }
                     };
                     mediaRecorder.start();
+
+                    // 常時入力モードの場合、VAD(無音検出)を開始する
+                    if (isContinuousMode) {
+                        audioStreamSource = audioContext.createMediaStreamSource(stream);
+                        const analyser = audioContext.createAnalyser();
+                        analyser.fftSize = 512;
+                        audioStreamSource.connect(analyser);
+
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Uint8Array(bufferLength);
+                        let silentSince = Date.now();
+                        const SILENCE_THRESHOLD = 3; // 音量のしきい値(0-255)。環境に合わせて調整。
+                        const VAD_HANGOVER_MS = 1500; // この時間(ms)無音が続いたら発話終了とみなす
+
+                        const detectSilence = () => {
+                            analyser.getByteFrequencyData(dataArray);
+                            const sum = dataArray.reduce((acc, val) => acc + val, 0);
+                            const avg = sum / bufferLength;
+
+                            if (avg < SILENCE_THRESHOLD) {
+                                if (Date.now() - silentSince > VAD_HANGOVER_MS) {
+                                    if (mediaRecorder && mediaRecorder.state === "recording") {
+                                        console.log("VAD: Silence detected. Stopping recording.");
+                                        mediaRecorder.stop(); // onstopイベントが発火し送信される
+                                    }
+                                    return; // 検出ループを終了
+                                }
+                            } else {
+                                silentSince = Date.now();
+                            }
+                            silenceDetectionTimer = requestAnimationFrame(detectSilence);
+                        };
+                        detectSilence();
+                    }
+
                 } catch (err) {
                     console.error("マイクアクセスエラー:", err);
                     update_status('main-prompt', 'マイクへのアクセスが拒否されました。');
@@ -451,17 +501,34 @@
                 }
             }
         };
+
         const stopRecording = () => {
             micButton.classList.remove('recording');
             micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
             remove_temp_user_message();
             remove_status('main-prompt');
 
+            // VADタイマーも確実に停止する
+            if (silenceDetectionTimer) {
+                cancelAnimationFrame(silenceDetectionTimer);
+                silenceDetectionTimer = null;
+            }
+            if (audioStreamSource) {
+                audioStreamSource.disconnect();
+                audioStreamSource = null;
+            }
+
             if (userInputMode === 'browser') {
                 if (recognition) { manualStop = true; recognition.abort(); }
             } else {
-                if (mediaRecorder && mediaRecorder.state === "recording") { mediaRecorder.stop(); }
-                if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+                // 常時モードでない場合、または手動でオフにした場合はストリームを停止
+                if (!isContinuousMode && stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
             }
         };
 
@@ -499,9 +566,13 @@
             isContinuousMode = !isContinuousMode;
             micButton.classList.toggle('continuous-mode', isContinuousMode);
             if (isContinuousMode) {
-                if (!micButton.classList.contains('recording') && !isPlaying) { startRecording(); }
+                if (!micButton.classList.contains('recording') && !isPlaying) {
+                    startRecording();
+                }
             } else {
-                if (micButton.classList.contains('recording')) { stopRecording(); }
+                if (micButton.classList.contains('recording')) {
+                    stopRecording();
+                }
                 enable_input();
             }
         };
