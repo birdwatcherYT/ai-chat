@@ -89,7 +89,6 @@
             switch (message.type) {
                 case 'config':
                     userName = message.data.user_name;
-                    document.title = `${userName} - AI Chat`;
                     userInputMode = message.data.user_input_mode;
 
                     if (userInputMode === 'ai') {
