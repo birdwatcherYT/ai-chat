@@ -1,0 +1,122 @@
+chat:
+  user:
+    name: U # 呼ばれたい名前に変える
+    character: | # あなたのプロフィール
+      - 男
+    input: text # text, voice, ai から選択
+    asr_engine: browser # null, vosk, whisper, gemini_asr, browser から選択
+    voice: # aiモードのときのみ使う
+      engine: null # null, voicevox, coeiroink, aivisspeech
+      # config:
+      #   speaker_id: 13
+  ai:
+    - name: A # 呼びたい名前に変える
+      character: | # ここにAIのキャラクターを書いておく
+        - {user_name}の女友達
+        - 穏やかで人よく褒める優しい性格
+      voice:
+        engine: aivisspeech
+        config:
+          speaker_id: 888753760
+    - name: B
+      character: |
+        - {user_name}の女友達
+        - {ai0_name}と仲が良い
+      voice:
+        engine: aivisspeech
+        config:
+          speaker_id: 1431611904
+  initial_message:
+    - name: "{user_name}"
+      content: "こんにちは。"
+    - name: "{ai0_name}"
+      content: "こんにちは。今日もお疲れ様。"
+  initial_turn: "{user_name}"
+  streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
+  image:
+    model: gemini_image # mock, gemini_image, fastsd
+    edit: false # 画像編集モード
+    interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
+
+    save_dir: "generated_images" # 生成された画像の保存先ディレクトリ
+    url_path: "/images" # Webサーバー経由で画像にアクセスするためのURLパス
+  turn_control_mode: llm # llm, random, round_robin
+  # 機能ごとにLLMエンジンとモデルを指定
+  llm:
+    # 発話内容の生成
+    utterance:
+      engine: gemini
+      model: gemini-2.5-flash-lite # modelを指定しない場合は、下のデフォルトモデルが使われる
+    # 次の話者の決定
+    turn_control:
+      engine: gemini
+      model: gemini-2.0-flash-lite
+    # 状況説明 (画像生成プロンプト用)
+    situation:
+      engine: gemini
+      model: gemini-2.0-flash
+
+# LLM
+gemini:
+  # model: gemini-2.5-flash-lite
+  model: gemini-2.0-flash
+
+ollama:
+  model: gemma3 # gemma3, gemma3nなど
+  base_url: http://localhost:11434 # OllamaサーバーのURL
+
+openrouter:
+  model: deepseek/deepseek-chat-v3-0324:free # 使用するOpenRouterモデル名
+  base_url: https://openrouter.ai/api/v1 # OpenRouter APIのベースURL
+
+# Image
+gemini_image:
+  model: gemini-2.0-flash-preview-image-generation
+
+fastsd:
+  base_url: http://localhost:8000
+  settings:
+    # モデル
+    lcm_model_id: stabilityai/sd-turbo
+    lcm_lora:
+      base_model_id: Lykon/dreamshaper-8
+      lcm_lora_id: latent-consistency/lcm-lora-sdv1-5
+    use_lcm_lora: true
+    use_tiny_auto_encoder: true
+    # 生成
+    image_width: 512
+    image_height: 512
+    inference_steps: 4
+    guidance_scale: 1
+    seed: null
+    use_seed: false
+    # image to imageのとき:
+    strength: 0.8
+
+# ASR
+gemini_asr:
+  model: gemini-2.0-flash
+
+vosk:
+  model_dir: ./vosk-model-ja-0.22
+
+whisper:
+  model_name: small # small, turbo
+  compute_type: int8 # int8, int16
+  vad_filter: true # true, false
+webrtcvad:
+  sensitivity: 2 # 0~3 (大きいほどノイズに強い)
+  # 1フレームあたり20ms
+  hangover_threshold: 25
+  pre_buffer_frames: 50
+
+# テスト用 TTS
+voicevox:
+  speaker_id: 62
+
+coeiroink:
+  speaker_uuid: d41bcbd9-f4a9-4e10-b000-7a431568dd01
+  style_id: 103
+
+aivisspeech:
+  speaker_id: 113804962
