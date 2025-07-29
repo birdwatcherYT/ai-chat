@@ -73,6 +73,7 @@
         let attachedImage = null;
         let isWebcamOn = false;
         let webcamStream = null;
+        // VAD (無音検出) 関連
         let silenceDetectionTimer = null;
         let audioStreamSource = null;
 
@@ -113,6 +114,7 @@
                     break;
 
                 case 'user_transcription':
+                    // サーバーから認識結果が来たらUIに表示するだけにする
                     remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
@@ -266,6 +268,7 @@
             if (imageSrc) {
                 imageHTML = `<img src="${imageSrc}" class="message-image" alt="添付画像">`;
             }
+            // テキストが空でもpタグは生成する（AIのストリーミング表示のため）
             el.innerHTML = `<strong class="name">${name}</strong>${imageHTML}<p>${text || ''}</p>`;
             chatBox.appendChild(el);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -301,7 +304,6 @@
             remove_status('speaker-decision');
             aiTurnFinished = true;
 
-            // ★★★ 修正箇所 ★★★
             // この関数は「ユーザーに制御を戻す」際の唯一のゲートキーパー。
             // どんな状況で呼ばれても（正常終了、リトライ要求など）、
             // UIを一度クリーンな「待機状態」にリセットする。
@@ -358,6 +360,7 @@
             source.start();
         };
 
+        // メッセージ送信ロジックを一本化
         const sendUserMessage = (message) => {
             const text = message || '';
             const image = attachedImage || null;
@@ -383,7 +386,7 @@
                 update_status('speaker-decision', '➡️ 次の話者を決めています...');
                 clearAttachment();
             }
-        }
+        };
 
         const handleTextInput = () => {
             const message = messageInput.value;
@@ -473,6 +476,7 @@
                             create_temp_user_message();
                             update_status('asr-server', 'サーバーで音声を認識中...');
                         } else {
+                            // データが小さすぎる場合(VAD誤作動など)は、そのまま再開
                             remove_temp_user_message();
                             if (isContinuousMode) {
                                 setTimeout(startRecording, 100);
@@ -492,8 +496,8 @@
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
                         let silentSince = Date.now();
-                        const SILENCE_THRESHOLD = 5;
-                        const VAD_HANGOVER_MS = 1500;
+                        const SILENCE_THRESHOLD = 5; // 音量のしきい値(0-255)。環境に合わせて調整。
+                        const VAD_HANGOVER_MS = 1500; // この時間(ms)無音が続いたら発話終了とみなす
 
                         const detectSilence = () => {
                             analyser.getByteFrequencyData(dataArray);
@@ -502,7 +506,7 @@
                             if (avg < SILENCE_THRESHOLD) {
                                 if (Date.now() - silentSince > VAD_HANGOVER_MS) {
                                     if (mediaRecorder && mediaRecorder.state === "recording") {
-                                        mediaRecorder.stop();
+                                        mediaRecorder.stop(); // onstopイベントが発火し送信される
                                     }
                                     return;
                                 }
