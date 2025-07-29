@@ -2,10 +2,7 @@
 マルチモーダルなAIチャット
 ![](./screenshot/img1.png)
 
-<iframe width="1144" height="715" src="https://www.youtube.com/embed/xGwAYrVz54M" title="ai-chat demo video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
-<video src="https://youtu.be/xGwAYrVz54M" controls="true"></video>
-
+https://youtu.be/xGwAYrVz54M
 
 - AI複数話者 & 対話コントロール
 - 状況に応じた画像出力
