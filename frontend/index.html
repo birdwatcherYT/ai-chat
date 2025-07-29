@@ -120,6 +120,12 @@
                         append_message(userName, message.data);
                     }
                     break;
+                case 'retry_audio_input':
+                    console.log("ASR failed or empty. Retrying input.");
+                    remove_status('asr-server');
+                    remove_temp_user_message();
+                    finish_ai_turn();
+                    break;
 
                 case 'history':
                     const content = message.data.content;
@@ -129,7 +135,7 @@
 
                 case 'next_speaker':
                     aiTurnFinished = false;
-                    
+
                     if (micButton.classList.contains('recording')) {
                         manualStop = true;
                         stopRecording();
@@ -289,11 +295,21 @@
                 tempUserMessageElement = null;
             }
         };
+
         const finish_ai_turn = () => {
             currentAiMessageElement = null;
             remove_status('ai_thinking');
             remove_status('speaker-decision');
             aiTurnFinished = true;
+
+            // ★★★ 修正箇所 ★★★
+            // この関数は「ユーザーに制御を戻す」際の唯一のゲートキーパー。
+            // どんな状況で呼ばれても（正常終了、リトライ要求など）、
+            // UIを一度クリーンな「待機状態」にリセットする。
+            // これにより、前の録音セッションのUI（赤い録音アイコン）が残るのを防ぐ。
+            micButton.classList.remove('recording');
+            micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
+
             if (!isPlaying) {
                 if (isContinuousMode) {
                     enable_input(false);
@@ -307,6 +323,7 @@
                 }
             }
         };
+
         const play_from_queue = () => {
             if (audioQueue.length === 0) {
                 isPlaying = false;
@@ -442,7 +459,7 @@
                             audioStreamSource.disconnect();
                             audioStreamSource = null;
                         }
-                        
+
                         if (manualStop) {
                             manualStop = false;
                             return;
@@ -476,7 +493,7 @@
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
                         let silentSince = Date.now();
-                        const SILENCE_THRESHOLD = 3;
+                        const SILENCE_THRESHOLD = 5;
                         const VAD_HANGOVER_MS = 1500;
 
                         const detectSilence = () => {
@@ -489,7 +506,7 @@
                                         mediaRecorder.stop();
                                     }
                                     return;
-                                 }
+                                }
                             } else {
                                 silentSince = Date.now();
                             }
@@ -524,16 +541,13 @@
             }
 
             if (userInputMode === 'browser_asr') {
-                if (recognition) { 
-                    recognition.abort(); 
+                if (recognition) {
+                    recognition.abort();
                 }
             } else if (userInputMode === 'server_asr') {
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop();
                 }
-                // ★★★ 根本対策 ★★★
-                // 録音セッションが終了するたびに、ストリームを完全に停止・破棄する。
-                // これにより、次の録音開始時に必ずクリーンなストリームが取得される。
                 if (stream) {
                     stream.getTracks().forEach(track => track.stop());
                     stream = null;

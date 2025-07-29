@@ -4,7 +4,7 @@ chat:
     character: | # あなたのプロフィール
       - 男
     input: text # text, voice, ai から選択
-    asr_engine: vosk # null, vosk, whisper, gemini_asr, browser から選択
+    asr_engine: whisper # null, vosk, whisper, gemini_asr, browser から選択
     voice: # aiモードのときのみ使う
       engine: null # null, voicevox, coeiroink, aivisspeech
       # config:

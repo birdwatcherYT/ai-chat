@@ -271,7 +271,7 @@ async def process_user_audio(audio_bytes: bytes) -> str:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    global history, effective_gui_mode  # グローバル変数を参照
+    global history, effective_gui_mode
 
     if ctx is None:
         logger.error("❌ [SYSTEM] アプリケーションが初期化されていません。")
@@ -281,8 +281,6 @@ async def websocket_endpoint(websocket: WebSocket):
     ctx.turn_manager.reset()
     history = list(ctx.initial_history)
 
-    # --- WebSocket接続時の処理 (修正箇所) ---
-    # `load_config_and_init`で計算済みのグローバル変数をそのまま使う
     await manager.send_json(
         {
             "type": "config",
@@ -299,7 +297,6 @@ async def websocket_endpoint(websocket: WebSocket):
         await manager.send_json({"type": "history", "data": text_message})
 
     try:
-        # `effective_gui_mode`を使って分岐
         if effective_gui_mode == "ai":
             logger.info("🤖 [SYSTEM] 全自動AIモードで起動します。")
             turn = ctx.initial_turn
@@ -324,9 +321,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message_text = ""
                 user_message_image = None
                 webcam_capture = None
-                is_from_server_audio = False
 
-                if "text" in raw_message:
+                # --- ★★★ 修正箇所 ★★★ ---
+                # 音声データ受信時の処理をリファクタリング
+                if "bytes" in raw_message:
+                    if not ctx.asr_engine:
+                        logger.warning(
+                            "⚠️ [SYSTEM] サーバーサイドASRが無効な状態で音声データを受信しました。無視します。"
+                        )
+                        continue
+
+                    # 音声認識を実行
+                    user_message_text = await process_user_audio(raw_message["bytes"])
+
+                    # 認識結果が空かどうかで処理を分岐
+                    if user_message_text:
+                        # 成功: クライアントに認識結果を送り、通常の会話フローを続ける
+                        await manager.send_json(
+                            {"type": "user_transcription", "data": user_message_text}
+                        )
+                        # この後のテキスト処理フローでhistory追加とAIターン開始が行われる
+                    else:
+                        # 失敗: クライアントにリトライを指示
+                        logger.info(
+                            "🎤 [ASR] 認識結果が空のため、クライアントにリトライを要求します。"
+                        )
+                        await manager.send_json({"type": "retry_audio_input"})
+                        continue  # 次のメッセージを待つ
+
+                # テキストメッセージ受信時の処理
+                elif "text" in raw_message:
                     try:
                         data = json.loads(raw_message["text"])
                         user_message_text = data.get("text", "")
@@ -334,30 +358,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         webcam_capture = data.get("webcam_capture")
                     except (json.JSONDecodeError, TypeError):
                         user_message_text = raw_message["text"]
-                elif "bytes" in raw_message:
-                    if ctx.asr_engine:
-                        is_from_server_audio = True
-                        user_message_text = await process_user_audio(
-                            raw_message["bytes"]
-                        )
-                        await manager.send_json(
-                            {"type": "user_transcription", "data": user_message_text}
-                        )
-                    else:
-                        logger.warning(
-                            "⚠️ [SYSTEM] サーバーサイドASRが無効な状態で音声データを受信しました。無視します。"
-                        )
-                        continue
 
+                # 有効な入力がなければ何もしない
                 if (
                     not user_message_text
                     and not user_message_image
                     and not webcam_capture
                 ):
-                    if is_from_server_audio:
-                        await manager.send_json({"type": "conversation_end"})
                     continue
 
+                # --- ここから共通の会話フロー ---
                 user_name = ctx.llmcfg.user_name
 
                 if user_message_text:
