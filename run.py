@@ -104,18 +104,15 @@ def task_asr(args):
     if engine == "whisper":
         from src.asr.whisper_asr import WhisperASR
 
-        # SimpleNamespaceをvars()で辞書に変換してから展開
         asr_instance = WhisperASR(**vars(config.whisper), **vars(config.webrtcvad))
     elif engine == "vosk":
         from src.asr.vosk_asr import VoskASR
 
-        # SimpleNamespaceをvars()で辞書に変換してから展開
         asr_instance = VoskASR(**vars(config.vosk))
-    elif engine == "gemini":
+    elif engine == "gemini_asr":
         from src.asr.gemini_asr import GeminiASR
 
-        # SimpleNamespaceをvars()で辞書に変換してから展開
-        asr_instance = GeminiASR(config.gemini.model, **vars(config.webrtcvad))
+        asr_instance = GeminiASR(**vars(config.gemini_asr), **vars(config.webrtcvad))
     else:
         logger.error(f"❌ [エラー] 未知のASRエンジン: {engine}")
         sys.exit(1)
@@ -146,7 +143,7 @@ def task_fastsd_status(args):
 
     config = load_config()
     llmcfg = LLMConfig(config)
-    llms = LLMs(llmcfg)
+    llms = LLMs(config, llmcfg)
     common_args = {
         "llms": llms,
         "save_dir": config.chat.image.save_dir,
@@ -174,7 +171,7 @@ def task_img_gen(args):
 
     config = load_config()
     llmcfg = LLMConfig(config)
-    llms = LLMs(llmcfg)
+    llms = LLMs(config, llmcfg)
     common_args = {
         "llms": llms,
         "save_dir": config.chat.image.save_dir,
@@ -254,8 +251,8 @@ if __name__ == "__main__":
     parser_asr.add_argument(
         "engine",
         type=str,
-        choices=["whisper", "vosk", "gemini"],
-        help="テストするASRエンジン (whisper, vosk, gemini)",
+        choices=["whisper", "vosk", "gemini_asr"],
+        help="テストするASRエンジン (whisper, vosk, gemini_asr)",
     )
     parser_asr.add_argument("--loop", action="store_true", help="連続して認識を行う")
     parser_asr.set_defaults(func=task_asr)

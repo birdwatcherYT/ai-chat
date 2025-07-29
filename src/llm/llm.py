@@ -1,6 +1,7 @@
 import json
 import os
 import random
+from types import SimpleNamespace
 from typing import Literal
 
 from langchain_core.output_parsers import StrOutputParser
@@ -14,20 +15,48 @@ from .common import LLMConfig, history_to_text
 
 
 class LLMs:
-    def __init__(self, llmcfg: LLMConfig):
+    def __init__(self, cfg: SimpleNamespace, llmcfg: LLMConfig):
+        self.cfg = cfg
         self.llmcfg = llmcfg
-        if self.llmcfg.llm_engine == "ollama":
-            self.llm = ChatOllama(**vars(llmcfg.ollama))
-        elif self.llmcfg.llm_engine == "gemini":
-            self.llm = ChatGoogleGenerativeAI(**vars(llmcfg.gemini))
-        elif self.llmcfg.llm_engine == "openrouter":
-            api_key = os.getenv("OPENROUTER_API_KEY")
-            self.llm = ChatOpenAI(**vars(llmcfg.openrouter), openai_api_key=api_key)
+
+        # 機能ごとにLLMを初期化
+        self.utterance_llm = self._init_llm_from_config("utterance")
+        self.turn_control_llm = self._init_llm_from_config("turn_control")
+        self.situation_llm = self._init_llm_from_config("situation")
 
         self.speaker_prompt_template = self.get_speaker_prompt_template()
 
+    def _init_llm_from_config(self, task_name: str):
+        """設定から特定のタスク用のLLMを初期化する"""
+        task_config = getattr(self.cfg.chat.llm, task_name, None)
+
+        # タスクごとの設定がない場合は、発話生成(utterance)の設定をフォールバックとして使用
+        if not task_config or not hasattr(task_config, "engine"):
+            task_config = self.cfg.chat.llm.utterance
+
+        engine = task_config.engine
+        base_params = getattr(self.llmcfg, engine, None)
+        if base_params is None:
+            raise ValueError(f"LLM engine '{engine}' configuration not found.")
+
+        params = vars(base_params).copy()
+        # タスクごとのモデル指定があれば、それで上書き
+        if hasattr(task_config, "model"):
+            params["model"] = task_config.model
+
+        if engine == "ollama":
+            return ChatOllama(**params)
+        elif engine == "gemini":
+            return ChatGoogleGenerativeAI(**params)
+        elif engine == "openrouter":
+            params["openai_api_key"] = os.getenv("OPENROUTER_API_KEY")
+            return ChatOpenAI(**params)
+
+        raise ValueError(
+            f"Unknown or unsupported LLM engine specified for task '{task_name}': {engine}"
+        )
+
     def get_speaker_prompt_template(self) -> PromptTemplate:
-        # この関数はhistory_to_textを使うので、修正は不要
         prompt = PromptTemplate.from_template(
             """次に発話するべき話者名を出力してください。
 
@@ -56,7 +85,6 @@ class LLMs:
     def get_next_speaker(
         self, history: list[dict[str, str]], except_names: list[str] = None
     ) -> str:
-        # この関数もhistory_to_textを使うので、修正は不要
         if except_names is None:
             except_names = []
         candidates = [c for c in self.llmcfg.char_names if c not in except_names]
@@ -76,8 +104,9 @@ class LLMs:
                 "speaker": ...,
             },
         )
-        speaker_chain = self.speaker_prompt_template | self.llm.with_structured_output(
-            SpeakerSchema
+        speaker_chain = (
+            self.speaker_prompt_template
+            | self.turn_control_llm.with_structured_output(SpeakerSchema)
         )
         result: SpeakerSchema = speaker_chain.invoke(
             {
@@ -88,7 +117,6 @@ class LLMs:
         return result.speaker
 
     def get_situation_chain(self):
-        # この関数もhistory_to_textを使うので、修正は不要
         prompt = PromptTemplate.from_template(
             """**会話履歴**を元に今の状況を表す説明を**英語**で出力してください。ただし、出力にキャラクター名を含めてはいけません。この出力は画像生成のためのプロンプトとして使用されます。
 
@@ -106,7 +134,7 @@ class LLMs:
                 "chara_prompt": self.llmcfg.chara_prompt,
             },
         )
-        return prompt | self.llm | StrOutputParser()
+        return prompt | self.situation_llm | StrOutputParser()
 
     def get_utter_chain(self, history: list, webcam_capture: str | None = None):
         """
@@ -156,4 +184,4 @@ class LLMs:
             chara_prompt=self.llmcfg.chara_prompt,
         )
 
-        return partial_prompt | self.llm | StrOutputParser()
+        return partial_prompt | self.utterance_llm | StrOutputParser()

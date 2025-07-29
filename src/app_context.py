@@ -49,7 +49,7 @@ class AppContext:
     def __init__(self, cfg: SimpleNamespace):
         self.cfg = cfg
         self.llmcfg = LLMConfig(self.cfg)
-        self.llms = LLMs(self.llmcfg)
+        self.llms = LLMs(self.cfg, self.llmcfg)
         self.turn_manager = TurnManager(cfg, self.llms)
         self.img_generator = self._init_image_generator()
         self.asr_engine = self._init_asr_engine()
@@ -90,16 +90,23 @@ class AppContext:
     def _init_asr_engine(self) -> SpeechToText | None:
         """設定に基づいて音声認識エンジンを初期化する"""
         user_input_mode = self.cfg.chat.user.input
-        if user_input_mode == "vosk":
+        asr_engine = getattr(self.cfg.chat.user, "asr_engine", None)
+
+        if user_input_mode != "voice" or not asr_engine or asr_engine == "browser":
+            return None
+
+        if asr_engine == "vosk":
             from .asr.vosk_asr import VoskASR
 
             return VoskASR(**vars(self.cfg.vosk))
-        if user_input_mode == "whisper":
+        if asr_engine == "whisper":
             from .asr.whisper_asr import WhisperASR
 
             return WhisperASR(**vars(self.cfg.whisper), **vars(self.cfg.webrtcvad))
-        if user_input_mode == "gemini":
+        if asr_engine == "gemini_asr":
             from .asr.gemini_asr import GeminiASR
 
-            return GeminiASR(self.cfg.gemini.model, **vars(self.cfg.webrtcvad))
+            return GeminiASR(**vars(self.cfg.gemini_asr), **vars(self.cfg.webrtcvad))
+
+        logger.warning(f"⚠️ [ASR] 未知または指定されていないASRエンジン: {asr_engine}")
         return None

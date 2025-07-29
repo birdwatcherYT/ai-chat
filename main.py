@@ -206,7 +206,14 @@ async def chat_start(cfg: SimpleNamespace):
 
     # AppContextで初期化をまとめる
     ctx = AppContext(cfg)
-    logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
+
+    # ログ出力の修正
+    asr_mode = None
+    if ctx.cfg.chat.user.input == "voice":
+        asr_mode = getattr(ctx.cfg.chat.user, "asr_engine", "None")
+    logger.info(
+        f"✅ [SYSTEM] 初期化完了 (Input: {ctx.cfg.chat.user.input}, ASR: {asr_mode})"
+    )
 
     # ChatStateに必要なものを渡して初期化
     state = ChatState(

@@ -21,16 +21,19 @@ logger = get_logger(__name__, level=logging.INFO)
 
 app = FastAPI()
 
+# --- グローバル変数 ---
 ctx: AppContext | None = None
-# {"name": "string", "content": "string/base64", "type": "text/image"}
 history: list[dict] | None = None
+# GUIが実際に使用するモードを保持する変数を追加
+effective_gui_mode: str = "browser_asr"
 
 llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
 
 
 def load_config_and_init():
-    global ctx, history
+    """設定を読み込み、サーバーの状態とGUIモードを初期化する"""
+    global ctx, history, effective_gui_mode  # グローバル変数を参照
     try:
         config = load_config()
         ctx = AppContext(config)
@@ -41,7 +44,23 @@ def load_config_and_init():
             name="images",
         )
         app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
-        logger.info(f"✅ [SYSTEM] 初期化完了 (ASR: {ctx.cfg.chat.user.input})")
+
+        # GUIで実際に使われるモードを計算する
+        base_input_mode = ctx.cfg.chat.user.input
+        if base_input_mode == "ai":
+            effective_gui_mode = "ai"
+        else:
+            asr_engine = getattr(ctx.cfg.chat.user, "asr_engine", "browser")
+            if asr_engine in ["vosk", "whisper", "gemini_asr"]:
+                effective_gui_mode = "server_asr"
+            else:  # browser, null, 未設定などの場合
+                effective_gui_mode = "browser_asr"
+
+        # 計算した結果をログに出力
+        logger.info(
+            f"✅ [SYSTEM] 初期化完了 (Config Input: {base_input_mode}, Effective GUI Mode: {effective_gui_mode})"
+        )
+
     except Exception as e:
         logger.error(f"❌ [SYSTEM] 初期化エラー: {e}")
         traceback.print_exc()
@@ -77,6 +96,8 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+# (以降の llm_stream_blocking_task, synthesis_consumerなどの関数は変更なし)
+# ...
 def llm_stream_blocking_task(
     turn: str,
     current_history: list,
@@ -230,9 +251,6 @@ async def run_ai_conversation_flow(
 
 
 async def process_user_audio(audio_bytes: bytes) -> str:
-    if not ctx.asr_engine:
-        logger.warning("⚠️ [SYSTEM] 音声データ受信、しかしASRエンジンが無効です。")
-        return ""
     try:
         audio_segment = AudioSegment.from_file(BytesIO(audio_bytes), format="webm")
         audio_segment = (
@@ -253,35 +271,36 @@ async def process_user_audio(audio_bytes: bytes) -> str:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    global history
+    global history, effective_gui_mode  # グローバル変数を参照
 
     if ctx is None:
         logger.error("❌ [SYSTEM] アプリケーションが初期化されていません。")
         await websocket.close(code=1011, reason="Server not initialized")
         return
 
-    # 新しい接続ごとにセッションデータをリセット
     ctx.turn_manager.reset()
     history = list(ctx.initial_history)
 
+    # --- WebSocket接続時の処理 (修正箇所) ---
+    # `load_config_and_init`で計算済みのグローバル変数をそのまま使う
     await manager.send_json(
         {
             "type": "config",
             "data": {
-                "user_input_mode": ctx.cfg.chat.user.input,
+                "user_input_mode": effective_gui_mode,
                 "user_name": ctx.llmcfg.user_name,
             },
         }
     )
     for message in history:
-        # フロントエンドにはテキスト化された履歴を送信
         text_message = {"name": message["name"], "content": message["content"]}
         if message["type"] == "image":
             text_message["content"] = "(画像添付)"
         await manager.send_json({"type": "history", "data": text_message})
 
     try:
-        if ctx.cfg.chat.user.input == "ai":
+        # `effective_gui_mode`を使って分岐
+        if effective_gui_mode == "ai":
             logger.info("🤖 [SYSTEM] 全自動AIモードで起動します。")
             turn = ctx.initial_turn
             while True:
@@ -305,7 +324,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 user_message_text = ""
                 user_message_image = None
                 webcam_capture = None
-                is_from_audio = False  # 音声入力由来かどうかのフラグ
+                is_from_server_audio = False
 
                 if "text" in raw_message:
                     try:
@@ -316,28 +335,31 @@ async def websocket_endpoint(websocket: WebSocket):
                     except (json.JSONDecodeError, TypeError):
                         user_message_text = raw_message["text"]
                 elif "bytes" in raw_message:
-                    is_from_audio = True
-                    user_message_text = await process_user_audio(raw_message["bytes"])
-                    # 認識結果をクライアントに通知してUIを更新させる
-                    await manager.send_json(
-                        {"type": "user_transcription", "data": user_message_text}
-                    )
+                    if ctx.asr_engine:
+                        is_from_server_audio = True
+                        user_message_text = await process_user_audio(
+                            raw_message["bytes"]
+                        )
+                        await manager.send_json(
+                            {"type": "user_transcription", "data": user_message_text}
+                        )
+                    else:
+                        logger.warning(
+                            "⚠️ [SYSTEM] サーバーサイドASRが無効な状態で音声データを受信しました。無視します。"
+                        )
+                        continue
 
-                # メッセージ内容が空（音声認識失敗含む）なら何もしない
                 if (
                     not user_message_text
                     and not user_message_image
                     and not webcam_capture
                 ):
-                    # 音声認識が失敗した場合、クライアントの入力を再度有効にする
-                    if is_from_audio:
+                    if is_from_server_audio:
                         await manager.send_json({"type": "conversation_end"})
                     continue
 
-                # --- 以下、テキスト/音声認識成功時の共通処理 ---
                 user_name = ctx.llmcfg.user_name
 
-                # historyにはテキストと添付画像のみを追加
                 if user_message_text:
                     history.append(
                         {
@@ -360,7 +382,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     list(history),
                     last_speaker=user_name,
                 )
-                # webcam_captureを渡してAIの応答フローを開始
                 asyncio.create_task(run_ai_conversation_flow(next_turn, webcam_capture))
 
     except WebSocketDisconnect:
