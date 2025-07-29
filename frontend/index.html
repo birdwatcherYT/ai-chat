@@ -102,12 +102,11 @@
                         webcamButton.style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
                     } else {
-                        // 'browser_asr' または 'server_asr' の場合
-                        micButton.style.display = 'flex'; // マイクボタンを常に表示
+                        micButton.style.display = 'flex';
                         if (userInputMode === 'browser_asr') {
                             initializeSpeechRecognition();
                             micButton.title = `常時音声入力 (ブラウザ認識)`;
-                        } else { // 'server_asr'
+                        } else {
                             micButton.title = `常時音声入力 (サーバー認識)`;
                         }
                     }
@@ -130,6 +129,12 @@
 
                 case 'next_speaker':
                     aiTurnFinished = false;
+                    
+                    if (micButton.classList.contains('recording')) {
+                        manualStop = true;
+                        stopRecording();
+                    }
+
                     remove_status('speaker-decision');
                     update_status('ai_thinking', `🧠 ${message.data}が発言を考えています...`);
                     if (message.data !== userName || isFullAutoMode) {
@@ -292,7 +297,11 @@
             if (!isPlaying) {
                 if (isContinuousMode) {
                     enable_input(false);
-                    startRecording();
+                    setTimeout(() => {
+                        if (aiTurnFinished && !isPlaying) {
+                            startRecording();
+                        }
+                    }, 500);
                 } else {
                     enable_input(true);
                 }
@@ -304,17 +313,25 @@
                 if (aiTurnFinished) {
                     if (isContinuousMode) {
                         enable_input(false);
-                        startRecording();
+                        setTimeout(() => {
+                            if (aiTurnFinished && !isPlaying) {
+                                startRecording();
+                            }
+                        }, 500);
                     } else {
                         enable_input(true);
                     }
                 }
                 return;
             }
-            if (!isPlaying && isContinuousMode && stream && userInputMode === 'server_asr') {
-                stream.getAudioTracks().forEach(track => track.enabled = false);
-                console.log("🎤 Mic Muted by AI speech (Server ASR)");
+
+            if (!isPlaying) {
+                if (isContinuousMode && stream && userInputMode === 'server_asr') {
+                    stream.getAudioTracks().forEach(track => track.enabled = false);
+                    console.log("🎤 Mic Muted by AI speech (Server ASR)");
+                }
             }
+
             isPlaying = true;
             const { audio, samplerate, dtype } = audioQueue.shift();
             const rawAudio = atob(audio); const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer); for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i); let float32Array; if (dtype === 'int16') { const i16 = new Int16Array(buffer); float32Array = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) float32Array[i] = i16[i] / 32768.0; } else if (dtype === 'float32') { float32Array = new Float32Array(buffer); } else { isPlaying = false; play_from_queue(); return; } const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate); audioBuffer.copyToChannel(float32Array, 0);
@@ -383,6 +400,7 @@
 
         const startRecording = async () => {
             if (isFullAutoMode || micButton.classList.contains('recording')) return;
+            manualStop = false;
             messageInput.disabled = true;
             sendButton.disabled = true;
 
@@ -424,8 +442,15 @@
                             audioStreamSource.disconnect();
                             audioStreamSource = null;
                         }
+                        
+                        if (manualStop) {
+                            manualStop = false;
+                            return;
+                        }
 
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        audioChunks = [];
+
                         if (audioBlob.size > 1000) {
                             ws.send(audioBlob);
                             disable_input();
@@ -464,7 +489,7 @@
                                         mediaRecorder.stop();
                                     }
                                     return;
-                                }
+                                 }
                             } else {
                                 silentSince = Date.now();
                             }
@@ -499,12 +524,17 @@
             }
 
             if (userInputMode === 'browser_asr') {
-                if (recognition) { manualStop = true; recognition.abort(); }
+                if (recognition) { 
+                    recognition.abort(); 
+                }
             } else if (userInputMode === 'server_asr') {
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop();
                 }
-                if (!isContinuousMode && stream) {
+                // ★★★ 根本対策 ★★★
+                // 録音セッションが終了するたびに、ストリームを完全に停止・破棄する。
+                // これにより、次の録音開始時に必ずクリーンなストリームが取得される。
+                if (stream) {
                     stream.getTracks().forEach(track => track.stop());
                     stream = null;
                 }
@@ -550,6 +580,7 @@
                 }
             } else {
                 if (micButton.classList.contains('recording')) {
+                    manualStop = true;
                     stopRecording();
                 }
                 enable_input();

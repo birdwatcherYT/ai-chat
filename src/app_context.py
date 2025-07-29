@@ -62,7 +62,6 @@ class AppContext:
         if self.cfg.chat.user.input == "ai":
             self.ai_config[self.llmcfg.user_name] = self.cfg.chat.user.voice
 
-        # 初期履歴を新しいデータ構造に変換
         self.initial_history = [
             {
                 "name": self.llmcfg.format(item.name),
@@ -89,24 +88,27 @@ class AppContext:
 
     def _init_asr_engine(self) -> SpeechToText | None:
         """設定に基づいて音声認識エンジンを初期化する"""
-        user_input_mode = self.cfg.chat.user.input
         asr_engine = getattr(self.cfg.chat.user, "asr_engine", None)
-
-        if user_input_mode != "voice" or not asr_engine or asr_engine == "browser":
+        
+        # `input`設定に依存せず、asr_engineの指定があれば初期化を試みる
+        if not asr_engine or asr_engine == "browser":
             return None
 
+        # 指定されたサーバーサイドASRエンジンがあれば初期化する
         if asr_engine == "vosk":
             from .asr.vosk_asr import VoskASR
-
+            logger.info("... VOSK ASR engine initialized.")
             return VoskASR(**vars(self.cfg.vosk))
         if asr_engine == "whisper":
             from .asr.whisper_asr import WhisperASR
-
-            return WhisperASR(**vars(self.cfg.whisper), **vars(self.cfg.webrtcvad))
+            logger.info("... Whisper ASR engine initialized.")
+            params = {**vars(self.cfg.whisper), **vars(self.cfg.webrtcvad)}
+            return WhisperASR(**params)
         if asr_engine == "gemini_asr":
             from .asr.gemini_asr import GeminiASR
+            logger.info("... Gemini ASR engine initialized.")
+            params = {**vars(self.cfg.gemini_asr), **vars(self.cfg.webrtcvad)}
+            return GeminiASR(**params)
 
-            return GeminiASR(**vars(self.cfg.gemini_asr), **vars(self.cfg.webrtcvad))
-
-        logger.warning(f"⚠️ [ASR] 未知または指定されていないASRエンジン: {asr_engine}")
+        logger.warning(f"⚠️ [ASR] 未知のASRエンジン: {asr_engine}")
         return None
