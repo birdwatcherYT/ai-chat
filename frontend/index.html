@@ -48,15 +48,12 @@
         const statusArea = document.getElementById('status-area');
         const imagePanel = document.getElementById('image-panel');
         const contextImage = document.getElementById('context-image');
-        // 画像関連の要素
         const attachButton = document.getElementById('attach-button');
         const imageInput = document.getElementById('image-input');
         const previewArea = document.getElementById('preview-area');
-        // Webカメラ関連の要素
         const webcamButton = document.getElementById('webcam-button');
         const webcamPanel = document.getElementById('webcam-panel');
         const webcamVideo = document.getElementById('webcam-video');
-        // スケールスライダー関連の要素を取得
         const scaleSlider = document.getElementById('scale-slider');
         const scaleValueLabel = document.getElementById('scale-value');
 
@@ -69,12 +66,11 @@
         let isContinuousMode = false;
         let aiTurnFinished = true;
         let recognition;
-        let userInputMode = 'audio';
+        let userInputMode = 'browser_asr'; // 'ai', 'browser_asr', 'server_asr'
         let isFullAutoMode = false;
         let manualStop = false;
         let tempUserMessageElement = null;
-        let attachedImage = null; // 添付画像データ
-        // Webカメラ関連の状態
+        let attachedImage = null;
         let isWebcamOn = false;
         let webcamStream = null;
         // VAD (無音検出) 関連
@@ -94,7 +90,6 @@
             switch (message.type) {
                 case 'config':
                     userName = message.data.user_name;
-                    document.title = `${userName} - AI Chat`;
                     userInputMode = message.data.user_input_mode;
 
                     if (userInputMode === 'ai') {
@@ -106,37 +101,47 @@
                         attachButton.style.display = 'none';
                         webcamButton.style.display = 'none';
                         messageInput.placeholder = "全自動モードです";
-                    } else if (userInputMode === 'text' || userInputMode === 'browser') {
-                        userInputMode = 'browser';
-                        initializeSpeechRecognition();
+                    } else {
+                        micButton.style.display = 'flex';
+                        if (userInputMode === 'browser_asr') {
+                            initializeSpeechRecognition();
+                            micButton.title = `常時音声入力 (ブラウザ認識)`;
+                        } else {
+                            micButton.title = `常時音声入力 (サーバー認識)`;
+                        }
                     }
-                    micButton.title = `常時音声入力 (${userInputMode === 'browser' ? 'ブラウザ認識' : 'サーバー認識'})`;
                     console.log(`GUI Input mode set to: ${userInputMode}`);
                     break;
 
                 case 'user_transcription':
-                    // [MODIFIED] バグ修正: サーバーから認識結果が来たらUIに表示するだけにする
-                    // 以前は `sendUserMessage` で再度サーバーにテキストを送っていたため、二重に応答が生成されていた。
+                    // サーバーから認識結果が来たらUIに表示するだけにする
                     remove_status('asr-server');
                     remove_temp_user_message();
                     if (message.data && message.data.trim()) {
-                        // 認識されたテキストをチャットボックスに表示
                         append_message(userName, message.data);
                     }
-                    // 認識失敗時の処理はサーバー側で conversation_end を送ることでハンドルされる
+                    break;
+                case 'retry_audio_input':
+                    console.log("ASR failed or empty. Retrying input.");
+                    remove_status('asr-server');
+                    remove_temp_user_message();
+                    finish_ai_turn();
                     break;
 
                 case 'history':
-                    // 履歴メッセージの表示 (画像対応)
                     const content = message.data.content;
                     const textOnly = content.replace(/\n\(画像添付\)$/, "");
-                    const hasImage = content.includes("\n(画像添付)");
-                    // 履歴からの画像表示は実装しないため、hasImageはここでは使わない
                     append_message(message.data.name, textOnly, null);
                     break;
 
                 case 'next_speaker':
                     aiTurnFinished = false;
+
+                    if (micButton.classList.contains('recording')) {
+                        manualStop = true;
+                        stopRecording();
+                    }
+
                     remove_status('speaker-decision');
                     update_status('ai_thinking', `🧠 ${message.data}が発言を考えています...`);
                     if (message.data !== userName || isFullAutoMode) {
@@ -241,18 +246,19 @@
         const remove_status = (id) => { const el = document.getElementById(id); if (el) el.remove(); };
         const enable_input = (isManual = true) => {
             if (isFullAutoMode) return;
-            messageInput.disabled = false; sendButton.disabled = false; micButton.disabled = false; attachButton.disabled = false;
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+            micButton.disabled = false;
+            attachButton.disabled = false;
             if (!isContinuousMode || isManual) { remove_status("main-prompt"); update_status("main-prompt", "メッセージを入力またはマイクを押してください。"); }
         };
         const disable_input = (isError = false) => {
             messageInput.disabled = true;
             sendButton.disabled = true;
             micButton.disabled = true;
-            // attachButton.disabled = true;
             if (!isFullAutoMode) remove_status("main-prompt");
         };
 
-        // 画像表示に対応
         const append_message = (name, text, imageSrc = null) => {
             const isUser = name === userName;
             const messageClass = (isUser && !isFullAutoMode) ? 'user-message' : 'ai-message';
@@ -291,37 +297,59 @@
                 tempUserMessageElement = null;
             }
         };
+
         const finish_ai_turn = () => {
             currentAiMessageElement = null;
             remove_status('ai_thinking');
             remove_status('speaker-decision');
             aiTurnFinished = true;
+
+            // この関数は「ユーザーに制御を戻す」際の唯一のゲートキーパー。
+            // どんな状況で呼ばれても（正常終了、リトライ要求など）、
+            // UIを一度クリーンな「待機状態」にリセットする。
+            // これにより、前の録音セッションのUI（赤い録音アイコン）が残るのを防ぐ。
+            micButton.classList.remove('recording');
+            micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
+
             if (!isPlaying) {
                 if (isContinuousMode) {
                     enable_input(false);
-                    startRecording();
+                    setTimeout(() => {
+                        if (aiTurnFinished && !isPlaying) {
+                            startRecording();
+                        }
+                    }, 500);
                 } else {
                     enable_input(true);
                 }
             }
         };
+
         const play_from_queue = () => {
             if (audioQueue.length === 0) {
                 isPlaying = false;
                 if (aiTurnFinished) {
                     if (isContinuousMode) {
                         enable_input(false);
-                        startRecording();
+                        setTimeout(() => {
+                            if (aiTurnFinished && !isPlaying) {
+                                startRecording();
+                            }
+                        }, 500);
                     } else {
                         enable_input(true);
                     }
                 }
                 return;
             }
-            if (!isPlaying && isContinuousMode && stream && userInputMode !== 'browser') {
-                stream.getAudioTracks().forEach(track => track.enabled = false);
-                console.log("🎤 Mic Muted by AI speech (Server ASR)");
+
+            if (!isPlaying) {
+                if (isContinuousMode && stream && userInputMode === 'server_asr') {
+                    stream.getAudioTracks().forEach(track => track.enabled = false);
+                    console.log("🎤 Mic Muted by AI speech (Server ASR)");
+                }
             }
+
             isPlaying = true;
             const { audio, samplerate, dtype } = audioQueue.shift();
             const rawAudio = atob(audio); const buffer = new ArrayBuffer(rawAudio.length); const view = new Uint8Array(buffer); for (let i = 0; i < rawAudio.length; i++) view[i] = rawAudio.charCodeAt(i); let float32Array; if (dtype === 'int16') { const i16 = new Int16Array(buffer); float32Array = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) float32Array[i] = i16[i] / 32768.0; } else if (dtype === 'float32') { float32Array = new Float32Array(buffer); } else { isPlaying = false; play_from_queue(); return; } const audioBuffer = audioContext.createBuffer(1, float32Array.length, samplerate); audioBuffer.copyToChannel(float32Array, 0);
@@ -341,17 +369,12 @@
             if (isWebcamOn && webcamStream) {
                 const video = webcamVideo;
                 const canvas = document.createElement('canvas');
-
-                // スケール（縮小率）でキャンバスサイズを決定
                 const scale = parseInt(scaleSlider.value) / 100;
                 const targetWidth = Math.round(video.videoWidth * scale);
                 const targetHeight = Math.round(video.videoHeight * scale);
-
                 canvas.width = targetWidth;
                 canvas.height = targetHeight;
-
                 canvas.getContext('2d').drawImage(video, 0, 0, targetWidth, targetHeight);
-
                 webcamCapture = canvas.toDataURL('image/jpeg');
             }
 
@@ -363,7 +386,7 @@
                 update_status('speaker-decision', '➡️ 次の話者を決めています...');
                 clearAttachment();
             }
-        }
+        };
 
         const handleTextInput = () => {
             const message = messageInput.value;
@@ -373,7 +396,6 @@
             }
         };
 
-        // 画像添付関連の関数
         const handleImageAttachment = (event) => {
             const file = event.target.files[0];
             if (!file) return;
@@ -397,6 +419,7 @@
 
         const startRecording = async () => {
             if (isFullAutoMode || micButton.classList.contains('recording')) return;
+            manualStop = false;
             messageInput.disabled = true;
             sendButton.disabled = true;
 
@@ -404,7 +427,7 @@
             micButton.textContent = "⏹️";
             update_status('main-prompt', '🎤 話してください...');
 
-            if (userInputMode === 'browser') {
+            if (userInputMode === 'browser_asr') {
                 if (!recognition) { console.error("Recognition not initialized."); return; }
                 try {
                     if (audioContext.state === 'suspended') { await audioContext.resume(); }
@@ -413,7 +436,7 @@
                 } catch (e) {
                     console.warn("Recognition might be already active:", e);
                 }
-            } else { // サーバーサイドASRの場合
+            } else if (userInputMode === 'server_asr') {
                 try {
                     if (audioContext.state === 'suspended') { await audioContext.resume(); }
 
@@ -430,7 +453,6 @@
                     audioChunks = [];
                     mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
                     mediaRecorder.onstop = () => {
-                        // VADタイマーをクリア
                         if (silenceDetectionTimer) {
                             cancelAnimationFrame(silenceDetectionTimer);
                             silenceDetectionTimer = null;
@@ -440,7 +462,14 @@
                             audioStreamSource = null;
                         }
 
+                        if (manualStop) {
+                            manualStop = false;
+                            return;
+                        }
+
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        audioChunks = [];
+
                         if (audioBlob.size > 1000) {
                             ws.send(audioBlob);
                             disable_input();
@@ -458,7 +487,6 @@
                     };
                     mediaRecorder.start();
 
-                    // 常時入力モードの場合、VAD(無音検出)を開始する
                     if (isContinuousMode) {
                         audioStreamSource = audioContext.createMediaStreamSource(stream);
                         const analyser = audioContext.createAnalyser();
@@ -468,21 +496,19 @@
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
                         let silentSince = Date.now();
-                        const SILENCE_THRESHOLD = 3; // 音量のしきい値(0-255)。環境に合わせて調整。
+                        const SILENCE_THRESHOLD = 5; // 音量のしきい値(0-255)。環境に合わせて調整。
                         const VAD_HANGOVER_MS = 1500; // この時間(ms)無音が続いたら発話終了とみなす
 
                         const detectSilence = () => {
                             analyser.getByteFrequencyData(dataArray);
-                            const sum = dataArray.reduce((acc, val) => acc + val, 0);
-                            const avg = sum / bufferLength;
+                            const avg = dataArray.reduce((acc, val) => acc + val, 0) / bufferLength;
 
                             if (avg < SILENCE_THRESHOLD) {
                                 if (Date.now() - silentSince > VAD_HANGOVER_MS) {
                                     if (mediaRecorder && mediaRecorder.state === "recording") {
-                                        console.log("VAD: Silence detected. Stopping recording.");
                                         mediaRecorder.stop(); // onstopイベントが発火し送信される
                                     }
-                                    return; // 検出ループを終了
+                                    return;
                                 }
                             } else {
                                 silentSince = Date.now();
@@ -508,7 +534,6 @@
             remove_temp_user_message();
             remove_status('main-prompt');
 
-            // VADタイマーも確実に停止する
             if (silenceDetectionTimer) {
                 cancelAnimationFrame(silenceDetectionTimer);
                 silenceDetectionTimer = null;
@@ -518,14 +543,15 @@
                 audioStreamSource = null;
             }
 
-            if (userInputMode === 'browser') {
-                if (recognition) { manualStop = true; recognition.abort(); }
-            } else {
+            if (userInputMode === 'browser_asr') {
+                if (recognition) {
+                    recognition.abort();
+                }
+            } else if (userInputMode === 'server_asr') {
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop();
                 }
-                // 常時モードでない場合、または手動でオフにした場合はストリームを停止
-                if (!isContinuousMode && stream) {
+                if (stream) {
                     stream.getTracks().forEach(track => track.stop());
                     stream = null;
                 }
@@ -571,6 +597,7 @@
                 }
             } else {
                 if (micButton.classList.contains('recording')) {
+                    manualStop = true;
                     stopRecording();
                 }
                 enable_input();
@@ -585,7 +612,6 @@
             }
         };
 
-        // スライダーの値をラベルに反映するイベントリスナー
         scaleSlider.addEventListener('input', (e) => {
             scaleValueLabel.textContent = e.target.value;
         });
@@ -593,7 +619,6 @@
 
         sendButton.onclick = handleTextInput;
         messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleTextInput() });
-        // 画像添付ボタンのイベントリスナー
         attachButton.onclick = () => imageInput.click();
         imageInput.onchange = handleImageAttachment;
     </script>

@@ -15,24 +15,17 @@ chat:
         - {user_name}の女友達
         - 穏やかで人よく褒める優しい性格
       voice:
-        engine: voicevox # null, voicevox, coeiroink, aivisspeech
+        engine: aivisspeech
         config:
-          speaker_id: 62
-        # engine: coeiroink
-        # config:
-        #   speaker_uuid: d41bcbd9-f4a9-4e10-b000-7a431568dd01
-        #   style_id: 103
-        # engine: aivisspeech
-        # config:
-        #   speaker_id: 888753762
+          speaker_id: 888753760
     - name: B
       character: |
         - {user_name}の女友達
         - {ai0_name}と仲が良い
       voice:
-        engine: voicevox # null, voicevox, coeiroink, aivisspeech
+        engine: aivisspeech
         config:
-          speaker_id: 0
+          speaker_id: 1431611904
   initial_message:
     - name: "{user_name}"
       content: "こんにちは。"
@@ -41,25 +34,27 @@ chat:
   initial_turn: "{user_name}"
   streaming_voice_output: ["。", "！", "？", "!", "?", "、"]
   image:
-    model: mock # mock, gemini_image, fastsd
+    model: gemini_image # mock, gemini_image, fastsd
     edit: false # 画像編集モード
     interval: 5 # 画像生成頻度（使わない場合この値を大きくする）
 
     save_dir: "generated_images" # 生成された画像の保存先ディレクトリ
     url_path: "/images" # Webサーバー経由で画像にアクセスするためのURLパス
-  turn_control_mode: round_robin # llm, random, round_robin
+  turn_control_mode: llm # llm, random, round_robin
   # 機能ごとにLLMエンジンとモデルを指定
   llm:
     # 発話内容の生成
     utterance:
-      engine: ollama
-      model: gemma3 # modelを指定しない場合は、下のデフォルトモデルが使われる
+      engine: gemini
+      model: gemini-2.5-flash-lite # modelを指定しない場合は、下のデフォルトモデルが使われる
     # 次の話者の決定
     turn_control:
-      engine: ollama
+      engine: gemini
+      model: gemini-2.0-flash-lite
     # 状況説明 (画像生成プロンプト用)
     situation:
-      engine: ollama
+      engine: gemini
+      model: gemini-2.0-flash
 
 # LLM
 gemini:

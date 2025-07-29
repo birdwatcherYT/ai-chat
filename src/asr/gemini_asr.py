@@ -8,7 +8,7 @@ from .vad_based_asr import VadBasedASR
 class GeminiASR(VadBasedASR):
     def __init__(
         self,
-        model_name: str,
+        model: str,
         # vad設定
         sensitivity: int,
         hangover_threshold: int,
@@ -17,13 +17,13 @@ class GeminiASR(VadBasedASR):
         """音声認識モデルを初期化
 
         Args:
-            model_name (str): Geminiモデル名
+            model (str): Geminiモデル名
             sensitivity (int): VADの感度設定（0〜3、3が最も厳しい）
             hangover_threshold (int): 発話終了と判断するまでの無音フレーム数
             pre_buffer_frames (int): 発話開始前に保持しておくフレーム数
         """
         super().__init__(sensitivity, hangover_threshold, pre_buffer_frames)
-        self.model_name = model_name
+        self.model_name = model
         self.client = genai.Client()
 
     def process_audio(self, audio_bytes: bytes) -> str:
