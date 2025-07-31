@@ -24,7 +24,6 @@ app = FastAPI()
 # --- グローバル変数 ---
 ctx: AppContext | None = None
 history: list[dict] | None = None
-# GUIが実際に使用するモードを保持する変数を追加
 effective_gui_mode: str = "browser_asr"
 
 llm_text_queue = asyncio.Queue()
@@ -33,7 +32,7 @@ audio_data_queue = asyncio.Queue()
 
 def load_config_and_init():
     """設定を読み込み、サーバーの状態とGUIモードを初期化する"""
-    global ctx, history, effective_gui_mode  # グローバル変数を参照
+    global ctx, history, effective_gui_mode
     try:
         config = load_config()
         ctx = AppContext(config)
@@ -45,7 +44,6 @@ def load_config_and_init():
         )
         app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
-        # GUIで実際に使われるモードを計算する
         base_input_mode = ctx.cfg.chat.user.input
         if base_input_mode == "ai":
             effective_gui_mode = "ai"
@@ -53,10 +51,9 @@ def load_config_and_init():
             asr_engine = getattr(ctx.cfg.chat.user, "asr_engine", "browser")
             if asr_engine in ["vosk", "whisper", "gemini_asr"]:
                 effective_gui_mode = "server_asr"
-            else:  # browser, null, 未設定などの場合
+            else:
                 effective_gui_mode = "browser_asr"
 
-        # 計算した結果をログに出力
         logger.info(
             f"✅ [SYSTEM] 初期化完了 (Config Input: {base_input_mode}, Effective GUI Mode: {effective_gui_mode})"
         )
@@ -96,8 +93,6 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-# (以降の llm_stream_blocking_task, synthesis_consumerなどの関数は変更なし)
-# ...
 def llm_stream_blocking_task(
     turn: str,
     current_history: list,
@@ -134,18 +129,25 @@ def llm_stream_blocking_task(
         traceback.print_exc()
         return None
     finally:
+        # 発話の終わりにNoneをキューに入れて、音声処理の完了を待てるようにする
         asyncio.run_coroutine_threadsafe(llm_text_queue.put(None), loop)
 
 
 async def synthesis_consumer():
+    """(ワーカー) llm_text_queueからテキストを取得し、音声合成してaudio_data_queueに渡す"""
+    logger.info("✅ [WORKER] Synthesis consumer started.")
     while True:
         task = await llm_text_queue.get()
         if task is None:
             await audio_data_queue.put(None)
-            break
+            llm_text_queue.task_done()
+            continue  # Noneを受け取ってもワーカーは終了しない
+
         speaker_name, text = task
         voice_config = ctx.ai_config.get(speaker_name)
+
         if not voice_config or not voice_config.engine:
+            llm_text_queue.task_done()
             continue
         try:
             data, sr = await ctx.tts_engines[voice_config.engine].synthesize_async(
@@ -155,13 +157,19 @@ async def synthesis_consumer():
                 await audio_data_queue.put((data, sr, str(data.dtype)))
         except Exception as e:
             logger.error(f"❌ [SYNTH] 音声合成エラー: {e}")
+        finally:
+            llm_text_queue.task_done()
 
 
 async def audio_sender_consumer():
+    """(ワーカー) audio_data_queueから音声データを取得し、クライアントに送信する"""
+    logger.info("✅ [WORKER] Audio sender consumer started.")
     while True:
         task = await audio_data_queue.get()
         if task is None:
-            break
+            audio_data_queue.task_done()
+            continue  # Noneを受け取ってもワーカーは終了しない
+
         data, sr, dtype = task
         try:
             encoded_audio = base64.b64encode(data.tobytes()).decode("utf-8")
@@ -173,6 +181,8 @@ async def audio_sender_consumer():
             )
         except Exception:
             pass
+        finally:
+            audio_data_queue.task_done()
 
 
 async def image_generation_task(current_history):
@@ -185,9 +195,7 @@ async def image_generation_task(current_history):
     )
     try:
         image_url, _ = await asyncio.to_thread(
-            ctx.img_generator.generate_image,
-            current_history,
-            ctx.cfg.chat.image.edit,
+            ctx.img_generator.generate_image, current_history, ctx.cfg.chat.image.edit
         )
         if image_url:
             await manager.send_json({"type": "image", "url": image_url})
@@ -213,12 +221,15 @@ async def image_generation_task(current_history):
 async def main_pipeline_task(
     turn: str, loop: asyncio.AbstractEventLoop, webcam_capture: str | None = None
 ):
+    """LLMによるテキスト生成を実行し、音声送信の完了を待つ"""
     llm_task = asyncio.to_thread(
         llm_stream_blocking_task, turn, list(history), loop, webcam_capture
     )
-    audio_task = asyncio.gather(synthesis_consumer(), audio_sender_consumer())
-    results = await asyncio.gather(llm_task, audio_task)
-    return results[0]
+    main_response = await llm_task
+    # すべてのテキストが処理され、音声がクライアントに送られるのを待つ
+    await llm_text_queue.join()
+    await audio_data_queue.join()
+    return main_response
 
 
 async def run_single_turn(turn: str, webcam_capture: str | None = None):
@@ -236,18 +247,22 @@ async def run_single_turn(turn: str, webcam_capture: str | None = None):
             asyncio.create_task(image_generation_task(list(history)))
 
 
-async def run_ai_conversation_flow(
-    initial_turn: str, webcam_capture: str | None = None
-):
+async def conversation_flow(initial_turn: str, webcam_capture: str | None = None):
+    """会話のフローを管理する。AIモードと通常モードの両方に対応。"""
     turn = initial_turn
-    while turn != ctx.llmcfg.user_name:
+    is_ai_mode = effective_gui_mode == "ai"
+    while True:
+        if not is_ai_mode and turn == ctx.llmcfg.user_name:
+            break
         await run_single_turn(turn, webcam_capture)
+        last_speaker = turn
         turn = await asyncio.to_thread(
-            ctx.turn_manager.get_next_speaker,
-            list(history),
-            last_speaker=turn,
+            ctx.turn_manager.get_next_speaker, list(history), last_speaker=last_speaker
         )
-    await manager.send_json({"type": "conversation_end"})
+        if is_ai_mode:
+            await asyncio.sleep(1)
+    if not is_ai_mode:
+        await manager.send_json({"type": "conversation_end"})
 
 
 async def process_user_audio(audio_bytes: bytes) -> str:
@@ -281,6 +296,10 @@ async def websocket_endpoint(websocket: WebSocket):
     ctx.turn_manager.reset()
     history = list(ctx.initial_history)
 
+    # ワーカータスクをここで起動し、接続中はずっと常駐させる
+    synth_task = asyncio.create_task(synthesis_consumer())
+    sender_task = asyncio.create_task(audio_sender_consumer())
+
     await manager.send_json(
         {
             "type": "config",
@@ -297,102 +316,66 @@ async def websocket_endpoint(websocket: WebSocket):
         await manager.send_json({"type": "history", "data": text_message})
 
     try:
-        if effective_gui_mode == "ai":
-            logger.info("🤖 [SYSTEM] 全自動AIモードで起動します。")
-            turn = ctx.initial_turn
-            while True:
-                await run_single_turn(turn)
-                last_speaker = turn
-                turn = await asyncio.to_thread(
-                    ctx.turn_manager.get_next_speaker,
-                    list(history),
-                    last_speaker=last_speaker,
-                )
-                await asyncio.sleep(1)
-        else:
-            initial_turn = ctx.initial_turn
-            if initial_turn != ctx.llmcfg.user_name:
-                await run_ai_conversation_flow(initial_turn)
-            else:
-                await manager.send_json({"type": "conversation_end"})
+        # 常にクライアントからのメッセージを待つループ
+        while True:
+            raw_message = await websocket.receive()
+            user_message_text = ""
+            user_message_image = None
+            webcam_capture = None
 
-            while True:
-                raw_message = await websocket.receive()
-                user_message_text = ""
-                user_message_image = None
-                webcam_capture = None
-
-                # --- ★★★ 修正箇所 ★★★ ---
-                # 音声データ受信時の処理をリファクタリング
-                if "bytes" in raw_message:
-                    if not ctx.asr_engine:
-                        logger.warning(
-                            "⚠️ [SYSTEM] サーバーサイドASRが無効な状態で音声データを受信しました。無視します。"
-                        )
-                        continue
-
-                    # 音声認識を実行
-                    user_message_text = await process_user_audio(raw_message["bytes"])
-
-                    # 認識結果が空かどうかで処理を分岐
-                    if user_message_text:
-                        # 成功: クライアントに認識結果を送り、通常の会話フローを続ける
-                        await manager.send_json(
-                            {"type": "user_transcription", "data": user_message_text}
-                        )
-                        # この後のテキスト処理フローでhistory追加とAIターン開始が行われる
-                    else:
-                        # 失敗: クライアントにリトライを指示
-                        logger.info(
-                            "🎤 [ASR] 認識結果が空のため、クライアントにリトライを要求します。"
-                        )
-                        await manager.send_json({"type": "retry_audio_input"})
-                        continue  # 次のメッセージを待つ
-
-                # テキストメッセージ受信時の処理
-                elif "text" in raw_message:
-                    try:
-                        data = json.loads(raw_message["text"])
-                        user_message_text = data.get("text", "")
-                        user_message_image = data.get("image")
-                        webcam_capture = data.get("webcam_capture")
-                    except (json.JSONDecodeError, TypeError):
-                        user_message_text = raw_message["text"]
-
-                # 有効な入力がなければ何もしない
-                if (
-                    not user_message_text
-                    and not user_message_image
-                    and not webcam_capture
-                ):
+            if "bytes" in raw_message:
+                if not ctx.asr_engine:
+                    logger.warning(
+                        "⚠️ [SYSTEM] サーバーサイドASRが無効な状態で音声データを受信しました。無視します。"
+                    )
+                    continue
+                user_message_text = await process_user_audio(raw_message["bytes"])
+                if user_message_text:
+                    await manager.send_json(
+                        {"type": "user_transcription", "data": user_message_text}
+                    )
+                else:
+                    logger.info(
+                        "🎤 [ASR] 認識結果が空のため、クライアントにリトライを要求します。"
+                    )
+                    await manager.send_json({"type": "retry_audio_input"})
                     continue
 
-                # --- ここから共通の会話フロー ---
-                user_name = ctx.llmcfg.user_name
+            elif "text" in raw_message:
+                data = json.loads(raw_message["text"])
+                # AIモード開始の合図を処理
+                if data.get("type") == "start_ai_conversation":
+                    if effective_gui_mode == "ai":
+                        logger.info(
+                            "🤖 [SYSTEM] Client requested to start AI conversation."
+                        )
+                        initial_turn = ctx.initial_turn
+                        # conversation_flowをバックグラウンドタスクとして開始
+                        asyncio.create_task(conversation_flow(initial_turn))
+                    continue  # 次のメッセージを待つ
 
-                if user_message_text:
-                    history.append(
-                        {
-                            "name": user_name,
-                            "type": "text",
-                            "content": user_message_text,
-                        }
-                    )
-                if user_message_image:
-                    history.append(
-                        {
-                            "name": user_name,
-                            "type": "image",
-                            "content": user_message_image,
-                        }
-                    )
+                # 通常のユーザーメッセージを処理
+                user_message_text = data.get("text", "")
+                user_message_image = data.get("image")
+                webcam_capture = data.get("webcam_capture")
 
-                next_turn = await asyncio.to_thread(
-                    ctx.turn_manager.get_next_speaker,
-                    list(history),
-                    last_speaker=user_name,
+            if not user_message_text and not user_message_image and not webcam_capture:
+                continue
+
+            user_name = ctx.llmcfg.user_name
+            if user_message_text:
+                history.append(
+                    {"name": user_name, "type": "text", "content": user_message_text}
                 )
-                asyncio.create_task(run_ai_conversation_flow(next_turn, webcam_capture))
+            if user_message_image:
+                history.append(
+                    {"name": user_name, "type": "image", "content": user_message_image}
+                )
+
+            next_turn = await asyncio.to_thread(
+                ctx.turn_manager.get_next_speaker, list(history), last_speaker=user_name
+            )
+            asyncio.create_task(conversation_flow(next_turn, webcam_capture))
 
     except WebSocketDisconnect:
         logger.info("👋 [SYSTEM] クライアントが切断しました。")
@@ -400,6 +383,12 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"❌ [SYSTEM] WebSocketループエラー: {e}")
         traceback.print_exc()
     finally:
+        # ワーカータスクをクリーンアップする
+        logger.info("Cancelling worker tasks...")
+        synth_task.cancel()
+        sender_task.cancel()
+        await asyncio.gather(synth_task, sender_task, return_exceptions=True)
+        logger.info("Worker tasks cancelled.")
         manager.disconnect(websocket)
 
 
