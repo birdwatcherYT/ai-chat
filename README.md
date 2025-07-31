@@ -3,7 +3,8 @@
 マルチモーダルなAIチャット
 ![](./screenshot/img1.png)
 
-https://youtu.be/xGwAYrVz54M
+https://youtu.be/xGwAYrVz54M  
+https://youtu.be/IxRt3SGqczc
 
 - AI複数話者 & 対話コントロール
 - 状況に応じた画像出力
