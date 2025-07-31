@@ -3,13 +3,16 @@
 マルチモーダルなAIチャット
 ![](./screenshot/img1.png)
 
-https://youtu.be/xGwAYrVz54M  
-https://youtu.be/IxRt3SGqczc
-
 - AI複数話者 & 対話コントロール
 - 状況に応じた画像出力
 - 画像添付/Webカメラ対応
 - 音声認識 / 音声合成
+
+## デモ動画
+
+- [マルチAI対話](https://youtu.be/xGwAYrVz54M)
+- [webカメラ](https://youtu.be/IxRt3SGqczc)
+- [全自動AIモード](https://youtu.be/4KFjETokM2A)
 
 ## フォルダ構成
 
