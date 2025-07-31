@@ -89,7 +89,7 @@ class AppContext:
     def _init_asr_engine(self) -> SpeechToText | None:
         """設定に基づいて音声認識エンジンを初期化する"""
         asr_engine = getattr(self.cfg.chat.user, "asr_engine", None)
-        
+
         # `input`設定に依存せず、asr_engineの指定があれば初期化を試みる
         if not asr_engine or asr_engine == "browser":
             return None
@@ -97,15 +97,18 @@ class AppContext:
         # 指定されたサーバーサイドASRエンジンがあれば初期化する
         if asr_engine == "vosk":
             from .asr.vosk_asr import VoskASR
+
             logger.info("... VOSK ASR engine initialized.")
             return VoskASR(**vars(self.cfg.vosk))
         if asr_engine == "whisper":
             from .asr.whisper_asr import WhisperASR
+
             logger.info("... Whisper ASR engine initialized.")
             params = {**vars(self.cfg.whisper), **vars(self.cfg.webrtcvad)}
             return WhisperASR(**params)
         if asr_engine == "gemini_asr":
             from .asr.gemini_asr import GeminiASR
+
             logger.info("... Gemini ASR engine initialized.")
             params = {**vars(self.cfg.gemini_asr), **vars(self.cfg.webrtcvad)}
             return GeminiASR(**params)
