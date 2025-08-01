@@ -56,7 +56,7 @@ chat:
             config:
                 # model: hf.co/mmnga/umiyuki-Umievo-itr012-Gleipnir-7B-gguf:Q8_0
                 # stop: ["\n", ":"] # 指示に従わないモデルは強制停止させる
-                model: gemma3 
+                model: gemma3
         # 次の話者の決定
         turn_control:
             engine: ollama
