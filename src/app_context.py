@@ -27,26 +27,27 @@ from .turn_manager import TurnManager
 logger = get_logger(__name__, level=logging.INFO)
 
 
-def load_config() -> SimpleNamespace:
+def load_config(path: str = "config.yaml") -> SimpleNamespace:
     """config.yamlをUTF-8で読み込み、属性アクセス可能なオブジェクトを返す"""
     try:
-        with open("config.yaml", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             config_dict = yaml.safe_load(f)
             return json.loads(
                 json.dumps(config_dict), object_hook=lambda d: SimpleNamespace(**d)
             )
     except FileNotFoundError:
-        logger.error("❌ [エラー] 設定ファイル 'config.yaml' が見つかりません。")
+        logger.error(f"❌ [エラー] 設定ファイル '{path}' が見つかりません。")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"❌ [エラー] config.yamlの読み込みまたは解析に失敗しました: {e}")
+        logger.error(f"❌ [エラー] {path}の読み込みまたは解析に失敗しました: {e}")
         sys.exit(1)
 
 
 class AppContext:
     """アプリケーション全体の依存関係と状態を管理するクラス"""
 
-    def __init__(self, cfg: SimpleNamespace):
+    def __init__(self, path: str):
+        cfg = load_config(path)
         self.cfg = cfg
         self.llmcfg = LLMConfig(self.cfg)
         self.llms = LLMs(self.cfg, self.llmcfg)

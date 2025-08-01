@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydub import AudioSegment
 
-from src.app_context import AppContext, load_config
+from src.app_context import AppContext
 from src.logger import get_logger
 
 load_dotenv()
@@ -30,12 +30,11 @@ llm_text_queue = asyncio.Queue()
 audio_data_queue = asyncio.Queue()
 
 
-def load_config_and_init():
-    """設定を読み込み、サーバーの状態とGUIモードを初期化する"""
+def initialize(app_context: AppContext):
+    """サーバーの状態とGUIモードを初期化する"""
     global ctx, history, effective_gui_mode
     try:
-        config = load_config()
-        ctx = AppContext(config)
+        ctx = app_context
         history = list(ctx.initial_history)
         app.mount(
             ctx.cfg.chat.image.url_path,

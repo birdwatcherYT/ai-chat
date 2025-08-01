@@ -15,23 +15,26 @@ load_dotenv()
 # --- 各タスクの定義 ---
 
 
-def task_chat():
+def task_chat(args):
     """AIとのチャットを開始します"""
     from main import chat_start
+    from src.app_context import AppContext
 
-    config = load_config()
-    logger.info("✅ 設定を読み込みました。チャットを開始します。")
-    asyncio.run(chat_start(config))
+    logger.info("✅ 設定を読み込み、チャットを開始します。")
+    ctx = AppContext(args.path)
+    asyncio.run(chat_start(ctx))
 
 
-def task_server():
+def task_server(args):
     """Web UIサーバーを起動します"""
     import uvicorn
 
-    from server import app, load_config_and_init
+    from server import app, initialize
+    from src.app_context import AppContext
 
     logger.info("✅ 設定を読み込み、Webサーバーを初期化します。")
-    load_config_and_init()  # server.py内の初期化関数を呼び出し
+    ctx = AppContext(args.path)
+    initialize(ctx)
     logger.info("🚀 Webサーバーを http://localhost:5000 で起動します。")
     uvicorn.run(app, host="localhost", port=5000)
 
@@ -213,11 +216,17 @@ if __name__ == "__main__":
 
     # chat タスク
     parser_chat = subparsers.add_parser("chat", help="AIとのCLIチャットを開始します")
-    parser_chat.set_defaults(func=lambda args: task_chat())
+    parser_chat.add_argument(
+        "--path", type=str, help="設定ファイルのパス", default="config.yaml"
+    )
+    parser_chat.set_defaults(func=task_chat)
 
     # server タスク
     parser_server = subparsers.add_parser("server", help="Web UIサーバーを起動します")
-    parser_server.set_defaults(func=lambda args: task_server())
+    parser_server.add_argument(
+        "--path", type=str, help="設定ファイルのパス", default="config.yaml"
+    )
+    parser_server.set_defaults(func=task_server)
 
     # tts-list タスク
     parser_tts_list = subparsers.add_parser(

@@ -198,14 +198,11 @@ async def generate_and_open_image(
     log_task("IMAGE_GENERATION", "TASK_FINISHED")
 
 
-async def chat_start(cfg: SimpleNamespace):
+async def chat_start(ctx: AppContext):
     """非同期タスクをセットアップし、チャットループを開始する"""
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=os.cpu_count() * 5 or 32)
     loop.set_default_executor(executor)
-
-    # AppContextで初期化をまとめる
-    ctx = AppContext(cfg)
 
     # ログ出力の修正
     asr_mode = None
