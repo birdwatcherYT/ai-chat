@@ -303,8 +303,9 @@ const append_message = (name, text, imageSrc = null) => {
 };
 const update_ai_message = (chunk) => {
     if (currentAiMessageElement) {
-        currentAiMessageElement.querySelector(".message-content p").textContent +=
-            chunk;
+        currentAiMessageElement.querySelector(
+            ".message-content p",
+        ).textContent += chunk;
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 };
