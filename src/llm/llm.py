@@ -40,9 +40,9 @@ class LLMs:
             raise ValueError(f"LLM engine '{engine}' configuration not found.")
 
         params = vars(base_params).copy()
-        # タスクごとのモデル指定があれば、それで上書き
-        if hasattr(task_config, "model"):
-            params["model"] = task_config.model
+        # タスク固有の設定で上書き
+        if hasattr(task_config, "config"):
+            params.update(vars(task_config.config))
 
         if engine == "ollama":
             return ChatOllama(**params)
@@ -141,7 +141,7 @@ class LLMs:
         発言生成のためのチェーンを取得する。
         historyと、オプショナルなWebカメラキャプチャからプロンプトを構築する。
         """
-        instruction = """**キャラクター情報**を踏まえ、**会話履歴**に続く**{speaker}**の次の発言を生成してください。発話内容だけを出力してください。
+        instruction = """**キャラクター情報**を踏まえ、**会話履歴**に続く発言を生成してください。発話内容だけを出力してください。
 
 # キャラクター情報
 {user_prompt}

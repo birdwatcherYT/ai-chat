@@ -33,7 +33,7 @@ chat:
               engine: voicevox # null, voicevox, coeiroink, aivisspeech
               config:
                   speaker_id: 0
-    initial_message:
+    initial_message: # []
         - name: "{user_name}"
           content: "こんにちは。"
         - name: "{ai0_name}"
@@ -53,13 +53,18 @@ chat:
         # 発話内容の生成
         utterance:
             engine: ollama
-            model: gemma3 # modelを指定しない場合は、下のデフォルトモデルが使われる
+            config:
+                # model: hf.co/mmnga/umiyuki-Umievo-itr012-Gleipnir-7B-gguf:Q8_0
+                # stop: ["\n", ":"] # 指示に従わないモデルは強制停止させる
+                model: gemma3 
         # 次の話者の決定
         turn_control:
             engine: ollama
+            config: {} # configを指定しない場合は、下のデフォルト設定が使われる
         # 状況説明 (画像生成プロンプト用)
         situation:
             engine: ollama
+            config: {}
 
 # LLM
 gemini:
