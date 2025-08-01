@@ -171,3 +171,5 @@ cython_debug/
 .pypirc
 vosk-model-ja-0.22/
 *.png
+
+secret.yaml
