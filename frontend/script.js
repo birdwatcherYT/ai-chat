@@ -317,7 +317,7 @@ const create_temp_user_message = () => {
         "temp-message",
     );
 
-    const iconSrc = characterIcons[userName] || "/frontend/icon.ico";
+    const iconSrc = characterIcons[userName] || "/frontend/icons/default.png";
     const iconHTML = `<img src="${iconSrc}" class="character-icon">`;
     const contentHTML = `<div class="message-content"><strong class="name">${userName}</strong><p></p></div>`;
     tempUserMessageElement.innerHTML = iconHTML + contentHTML;
