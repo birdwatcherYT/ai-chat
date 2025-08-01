@@ -6,43 +6,9 @@
         <title>AI Chat</title>
         <link rel="stylesheet" href="/frontend/style.css" />
         <link rel="icon" href="/frontend/icon.ico" />
-        <style>
-            #start-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.7);
-                display: none;
-                /* 初期状態では非表示 */
-                justify-content: center;
-                align-items: center;
-                color: white;
-                font-size: 24px;
-                cursor: pointer;
-                z-index: 1000;
-                flex-direction: column;
-            }
-
-            #start-overlay p {
-                margin: 0;
-                padding: 0;
-            }
-
-            #start-overlay small {
-                font-size: 16px;
-                margin-top: 10px;
-            }
-        </style>
     </head>
 
     <body>
-        <div id="start-overlay">
-            <p>🤖 全自動AIモード</p>
-            <small>クリックして会話を開始</small>
-        </div>
-
         <div id="main-container">
             <div id="chat-container">
                 <div id="chat-box"></div>
@@ -62,6 +28,13 @@
                         placeholder="メッセージを入力..."
                         disabled
                     />
+                    <button
+                        id="ai-toggle-button"
+                        title="全自動モードの再生/停止"
+                        style="display: none"
+                    >
+                        ▶️ 再生
+                    </button>
                     <button id="send-button" disabled>送信</button>
                     <button
                         id="mic-button"
