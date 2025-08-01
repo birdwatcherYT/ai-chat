@@ -63,6 +63,13 @@ class AppContext:
         if self.cfg.chat.user.input == "ai":
             self.ai_config[self.llmcfg.user_name] = self.cfg.chat.user.voice
 
+        # アイコン情報を読み込む
+        self.character_icons = {}
+        for ai in self.cfg.chat.ai:
+            self.character_icons[ai.name] = getattr(ai, "icon", None)
+        user_name = self.llmcfg.user_name
+        self.character_icons[user_name] = getattr(self.cfg.chat.user, "icon", None)
+
         self.initial_history = [
             {
                 "name": self.llmcfg.format(item.name),

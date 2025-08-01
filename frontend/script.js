@@ -37,6 +37,7 @@ let isWebcamOn = false;
 let webcamStream = null;
 let silenceDetectionTimer = null;
 let audioStreamSource = null;
+let characterIcons = {}; // アイコン情報を保持する
 
 ws.onopen = () => {
     /* 初期化は onmessage の config で行う */
@@ -58,6 +59,7 @@ ws.onmessage = (event) => {
         case "config":
             userName = message.data.user_name;
             userInputMode = message.data.user_input_mode;
+            characterIcons = message.data.character_icons || {}; // アイコン情報を保存
 
             // AIモードの場合はオーバーレイを表示する
             if (userInputMode === "ai") {
@@ -265,18 +267,45 @@ const append_message = (name, text, imageSrc = null) => {
         isUser && !isFullAutoMode ? "user-message" : "ai-message";
     const el = document.createElement("div");
     el.classList.add("message", messageClass);
-    let imageHTML = "";
+
+    // アイコン
+    const iconSrc = characterIcons[name] || "/frontend/icons/default.png"; // なければデフォルト
+    const iconEl = document.createElement("img");
+    iconEl.src = iconSrc;
+    iconEl.classList.add("character-icon");
+    el.appendChild(iconEl);
+
+    // メッセージ内容
+    const contentEl = document.createElement("div");
+    contentEl.classList.add("message-content");
+
+    const nameEl = document.createElement("strong");
+    nameEl.classList.add("name");
+    nameEl.textContent = name;
+    contentEl.appendChild(nameEl);
+
     if (imageSrc) {
-        imageHTML = `<img src="${imageSrc}" class="message-image" alt="添付画像">`;
+        const imgEl = document.createElement("img");
+        imgEl.src = imageSrc;
+        imgEl.classList.add("message-image");
+        imgEl.alt = "添付画像";
+        contentEl.appendChild(imgEl);
     }
-    el.innerHTML = `<strong class="name">${name}</strong>${imageHTML}<p>${text || ""}</p>`;
+
+    const pEl = document.createElement("p");
+    pEl.textContent = text || "";
+    contentEl.appendChild(pEl);
+
+    el.appendChild(contentEl);
     chatBox.appendChild(el);
     chatBox.scrollTop = chatBox.scrollHeight;
     return el;
 };
 const update_ai_message = (chunk) => {
     if (currentAiMessageElement) {
-        currentAiMessageElement.querySelector("p").textContent += chunk;
+        currentAiMessageElement.querySelector(
+            ".message-content p",
+        ).textContent += chunk;
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 };
@@ -288,14 +317,20 @@ const create_temp_user_message = () => {
         "user-message",
         "temp-message",
     );
-    tempUserMessageElement.innerHTML = `<strong class="name">${userName}</strong><p></p>`;
+
+    const iconSrc = characterIcons[userName] || "/frontend/icons/default.png";
+    const iconHTML = `<img src="${iconSrc}" class="character-icon">`;
+    const contentHTML = `<div class="message-content"><strong class="name">${userName}</strong><p></p></div>`;
+    tempUserMessageElement.innerHTML = iconHTML + contentHTML;
+
     chatBox.appendChild(tempUserMessageElement);
     chatBox.scrollTop = chatBox.scrollHeight;
 };
 const update_temp_user_message = (text) => {
     if (!tempUserMessageElement) create_temp_user_message();
     if (tempUserMessageElement) {
-        tempUserMessageElement.querySelector("p").textContent = text;
+        tempUserMessageElement.querySelector(".message-content p").textContent =
+            text;
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 };

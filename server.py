@@ -1,5 +1,3 @@
-# server.py
-
 import asyncio
 import base64
 import json
@@ -305,6 +303,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": {
                 "user_input_mode": effective_gui_mode,
                 "user_name": ctx.llmcfg.user_name,
+                "character_icons": ctx.character_icons,  # アイコン情報を追加
             },
         }
     )

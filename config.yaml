@@ -9,6 +9,7 @@ chat:
             engine: null # null, voicevox, coeiroink, aivisspeech
             # config:
             #   speaker_id: 13
+        # icon: /frontend/icon.ico
     ai:
         - name: A # 呼びたい名前に変える
           character: | # ここにAIのキャラクターを書いておく
@@ -25,6 +26,7 @@ chat:
               # engine: aivisspeech
               # config:
               #   speaker_id: 888753762
+        #   icon: /frontend/icons/default.png
         - name: B
           character: |
               - {user_name}の女友達
@@ -33,6 +35,7 @@ chat:
               engine: voicevox # null, voicevox, coeiroink, aivisspeech
               config:
                   speaker_id: 0
+        #   icon: /frontend/icons/default.png
     additional_prompt: "" # 状況や会話展開などを書く
     initial_message: # []
         - name: "{user_name}"
