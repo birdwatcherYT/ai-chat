@@ -33,6 +33,7 @@ chat:
               engine: voicevox # null, voicevox, coeiroink, aivisspeech
               config:
                   speaker_id: 0
+    additional_prompt: "" # 状況や会話展開などを書く
     initial_message: # []
         - name: "{user_name}"
           content: "こんにちは。"

@@ -14,6 +14,7 @@ class LLMConfig:
                 for ai in cfg.chat.ai
             ]
         )
+        self.additional_prompt = cfg.chat.additional_prompt
         self.gemini = cfg.gemini
         self.ollama = cfg.ollama
         self.openrouter = cfg.openrouter

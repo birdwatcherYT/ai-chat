@@ -59,7 +59,7 @@ class LLMs:
     def get_speaker_prompt_template(self) -> PromptTemplate:
         prompt = PromptTemplate.from_template(
             """次に発話するべき話者名を出力してください。
-
+{additional_prompt}
 # キャラクター情報
 {user_prompt}
 {chara_prompt}
@@ -78,6 +78,7 @@ class LLMs:
                 "user_prompt": self.llmcfg.user_prompt,
                 "chara_prompt": self.llmcfg.chara_prompt,
                 "char_names": json.dumps(self.llmcfg.char_names, ensure_ascii=False),
+                "additional_prompt": self.llmcfg.additional_prompt,
             },
         )
         return prompt
@@ -142,7 +143,7 @@ class LLMs:
         historyと、オプショナルなWebカメラキャプチャからプロンプトを構築する。
         """
         instruction = """**キャラクター情報**を踏まえ、**会話履歴**に続く発言を生成してください。1人分の発言だけを出力してください。
-
+{additional_prompt}
 # キャラクター情報
 {user_prompt}
 {chara_prompt}
@@ -182,6 +183,7 @@ class LLMs:
         partial_prompt = prompt_template.partial(
             user_prompt=self.llmcfg.user_prompt,
             chara_prompt=self.llmcfg.chara_prompt,
+            additional_prompt=self.llmcfg.additional_prompt,
         )
 
         return partial_prompt | self.utterance_llm | StrOutputParser()
