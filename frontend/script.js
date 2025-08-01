@@ -1,6 +1,9 @@
+const DEFAULT_ICON = "/frontend/icons/default.png";
+
 const chatBox = document.getElementById("chat-box");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
+const aiToggleButton = document.getElementById("ai-toggle-button");
 const micButton = document.getElementById("mic-button");
 const statusArea = document.getElementById("status-area");
 const imagePanel = document.getElementById("image-panel");
@@ -13,7 +16,6 @@ const webcamPanel = document.getElementById("webcam-panel");
 const webcamVideo = document.getElementById("webcam-video");
 const scaleSlider = document.getElementById("scale-slider");
 const scaleValueLabel = document.getElementById("scale-value");
-const startOverlay = document.getElementById("start-overlay");
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -30,6 +32,7 @@ let aiTurnFinished = true;
 let recognition;
 let userInputMode = "browser_asr";
 let isFullAutoMode = false;
+let isAiModeRunning = false;
 let manualStop = false;
 let tempUserMessageElement = null;
 let attachedImage = null;
@@ -59,19 +62,24 @@ ws.onmessage = (event) => {
         case "config":
             userName = message.data.user_name;
             userInputMode = message.data.user_input_mode;
-            characterIcons = message.data.character_icons || {}; // アイコン情報を保存
+            characterIcons = message.data.character_icons || {};
 
-            // AIモードの場合はオーバーレイを表示する
             if (userInputMode === "ai") {
                 isFullAutoMode = true;
-                disable_input(true);
-                micButton.style.display = "none";
+                messageInput.style.display = "none";
                 sendButton.style.display = "none";
+                micButton.style.display = "none";
                 attachButton.style.display = "none";
                 webcamButton.style.display = "none";
+                aiToggleButton.style.display = "flex";
                 messageInput.placeholder = "全自動モードです";
-                startOverlay.style.display = "flex"; // オーバーレイを表示
+                update_status(
+                    "main",
+                    "準備完了。再生ボタンを押して会話を開始します。",
+                );
             } else {
+                isFullAutoMode = false;
+                aiToggleButton.style.display = "none";
                 micButton.style.display = "flex";
                 if (userInputMode === "browser_asr") {
                     initializeSpeechRecognition();
@@ -79,7 +87,6 @@ ws.onmessage = (event) => {
                 } else {
                     micButton.title = `常時音声入力 (サーバー認識)`;
                 }
-                // 通常モードではすぐに会話可能にする
                 finish_ai_turn();
             }
             console.log(`GUI Input mode set to: ${userInputMode}`);
@@ -105,6 +112,10 @@ ws.onmessage = (event) => {
             break;
         case "next_speaker":
             aiTurnFinished = false;
+            if (isFullAutoMode && !isAiModeRunning) {
+                isAiModeRunning = true;
+                updateAiToggleButtonState();
+            }
             if (micButton.classList.contains("recording")) {
                 manualStop = true;
                 stopRecording();
@@ -140,6 +151,14 @@ ws.onmessage = (event) => {
         case "conversation_end":
             finish_ai_turn();
             break;
+        case "conversation_stopped":
+            isAiModeRunning = false;
+            updateAiToggleButtonState();
+            update_status(
+                "main",
+                "全自動モードを停止しました。再生ボタンで再開できます。",
+            );
+            break;
         case "image":
             imagePanel.dataset.state = "loaded";
             contextImage.src = message.url;
@@ -153,22 +172,14 @@ ws.onmessage = (event) => {
     }
 };
 
-// オーバーレイがクリックされた時の処理
-startOverlay.onclick = async () => {
-    try {
-        // AudioContextを有効化する (これが最も重要)
-        await audioContext.resume();
-        console.log("AudioContext resumed by user gesture.");
-
-        // オーバーレイを隠す
-        startOverlay.style.display = "none";
-        update_status("main", "🤖 全自動モードで実行中...");
-
-        // サーバーにAI会話の開始を通知する
-        ws.send(JSON.stringify({ type: "start_ai_conversation" }));
-    } catch (err) {
-        console.error("Failed to resume AudioContext:", err);
-        statusArea.textContent = "音声の再生を開始できませんでした。";
+const updateAiToggleButtonState = () => {
+    aiToggleButton.disabled = false;
+    if (isAiModeRunning) {
+        aiToggleButton.textContent = "⏹️ 停止";
+        aiToggleButton.classList.add("running");
+    } else {
+        aiToggleButton.textContent = "▶️ 再生";
+        aiToggleButton.classList.remove("running");
     }
 };
 
@@ -269,7 +280,7 @@ const append_message = (name, text, imageSrc = null) => {
     el.classList.add("message", messageClass);
 
     // アイコン
-    const iconSrc = characterIcons[name] || "/frontend/icons/default.png"; // なければデフォルト
+    const iconSrc = characterIcons[name] || DEFAULT_ICON; // なければデフォルト
     const iconEl = document.createElement("img");
     iconEl.src = iconSrc;
     iconEl.classList.add("character-icon");
@@ -318,7 +329,7 @@ const create_temp_user_message = () => {
         "temp-message",
     );
 
-    const iconSrc = characterIcons[userName] || "/frontend/icons/default.png";
+    const iconSrc = characterIcons[userName] || DEFAULT_ICON;
     const iconHTML = `<img src="${iconSrc}" class="character-icon">`;
     const contentHTML = `<div class="message-content"><strong class="name">${userName}</strong><p></p></div>`;
     tempUserMessageElement.innerHTML = iconHTML + contentHTML;
@@ -664,6 +675,21 @@ micButton.onclick = () => {
             stopRecording();
         }
         enable_input();
+    }
+};
+aiToggleButton.onclick = async () => {
+    // ユーザー操作によるAudioContextの有効化
+    if (audioContext.state === "suspended") {
+        await audioContext.resume();
+    }
+
+    aiToggleButton.disabled = true;
+    if (isAiModeRunning) {
+        ws.send(JSON.stringify({ type: "stop_ai_conversation" }));
+        update_status("main", "停止中...");
+    } else {
+        ws.send(JSON.stringify({ type: "start_ai_conversation" }));
+        update_status("main", "🤖 全自動モードで実行中...");
     }
 };
 webcamButton.onclick = () => {

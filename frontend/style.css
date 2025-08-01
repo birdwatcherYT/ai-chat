@@ -187,18 +187,40 @@ body {
     margin: 0 5px;
 }
 
-#send-button {
+#send-button,
+#ai-toggle-button {
     border: none;
-    background-color: #007bff;
     color: white;
     padding: 10px 20px;
     border-radius: 18px;
     cursor: pointer;
     font-size: 16px;
+    margin: 0 3px;
+    white-space: nowrap;
 }
 
+#send-button {
+    background-color: #007bff;
+}
 #send-button:hover {
     background-color: #0056b3;
+}
+
+#ai-toggle-button {
+    background-color: #28a745; /* Green for Play */
+}
+#ai-toggle-button:hover {
+    background-color: #218838;
+}
+#ai-toggle-button.running {
+    background-color: #dc3545; /* Red for Stop */
+}
+#ai-toggle-button.running:hover {
+    background-color: #c82333;
+}
+#ai-toggle-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
 }
 
 #attach-button,

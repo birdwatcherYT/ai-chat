@@ -248,18 +248,27 @@ async def conversation_flow(initial_turn: str, webcam_capture: str | None = None
     """会話のフローを管理する。AIモードと通常モードの両方に対応。"""
     turn = initial_turn
     is_ai_mode = effective_gui_mode == "ai"
-    while True:
-        if not is_ai_mode and turn == ctx.llmcfg.user_name:
-            break
-        await run_single_turn(turn, webcam_capture)
-        last_speaker = turn
-        turn = await asyncio.to_thread(
-            ctx.turn_manager.get_next_speaker, list(history), last_speaker=last_speaker
-        )
-        if is_ai_mode:
-            await asyncio.sleep(1)
-    if not is_ai_mode:
-        await manager.send_json({"type": "conversation_end"})
+    try:
+        while True:
+            if not is_ai_mode and turn == ctx.llmcfg.user_name:
+                break
+            await run_single_turn(turn, webcam_capture)
+            last_speaker = turn
+            turn = await asyncio.to_thread(
+                ctx.turn_manager.get_next_speaker,
+                list(history),
+                last_speaker=last_speaker,
+            )
+            if is_ai_mode:
+                await asyncio.sleep(1)
+        if not is_ai_mode:
+            await manager.send_json({"type": "conversation_end"})
+    except asyncio.CancelledError:
+        logger.info("🤖 [SYSTEM] Conversation flow was cancelled.")
+        await manager.send_json({"type": "conversation_stopped"})
+    except Exception as e:
+        logger.error(f"❌ [SYSTEM] Conversation flow error: {e}")
+        traceback.print_exc()
 
 
 async def process_user_audio(audio_bytes: bytes) -> str:
@@ -292,6 +301,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     ctx.turn_manager.reset()
     history = list(ctx.initial_history)
+    conversation_task = None
 
     # ワーカータスクをここで起動し、接続中はずっと常駐させる
     synth_task = asyncio.create_task(synthesis_consumer())
@@ -303,7 +313,7 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": {
                 "user_input_mode": effective_gui_mode,
                 "user_name": ctx.llmcfg.user_name,
-                "character_icons": ctx.character_icons,  # アイコン情報を追加
+                "character_icons": ctx.character_icons,
             },
         }
     )
@@ -341,18 +351,29 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif "text" in raw_message:
                 data = json.loads(raw_message["text"])
-                # AIモード開始の合図を処理
-                if data.get("type") == "start_ai_conversation":
+                msg_type = data.get("type")
+
+                if msg_type == "start_ai_conversation":
                     if effective_gui_mode == "ai":
                         logger.info(
                             "🤖 [SYSTEM] Client requested to start AI conversation."
                         )
+                        if conversation_task and not conversation_task.done():
+                            conversation_task.cancel()
                         initial_turn = ctx.initial_turn
-                        # conversation_flowをバックグラウンドタスクとして開始
-                        asyncio.create_task(conversation_flow(initial_turn))
-                    continue  # 次のメッセージを待つ
+                        conversation_task = asyncio.create_task(
+                            conversation_flow(initial_turn)
+                        )
+                    continue
 
-                # 通常のユーザーメッセージを処理
+                elif msg_type == "stop_ai_conversation":
+                    if conversation_task and not conversation_task.done():
+                        logger.info(
+                            "🤖 [SYSTEM] AI conversation stop requested by client."
+                        )
+                        conversation_task.cancel()
+                    continue
+
                 user_message_text = data.get("text", "")
                 user_message_image = data.get("image")
                 webcam_capture = data.get("webcam_capture")
@@ -373,7 +394,11 @@ async def websocket_endpoint(websocket: WebSocket):
             next_turn = await asyncio.to_thread(
                 ctx.turn_manager.get_next_speaker, list(history), last_speaker=user_name
             )
-            asyncio.create_task(conversation_flow(next_turn, webcam_capture))
+            if conversation_task and not conversation_task.done():
+                conversation_task.cancel()
+            conversation_task = asyncio.create_task(
+                conversation_flow(next_turn, webcam_capture)
+            )
 
     except WebSocketDisconnect:
         logger.info("👋 [SYSTEM] クライアントが切断しました。")
@@ -381,12 +406,15 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"❌ [SYSTEM] WebSocketループエラー: {e}")
         traceback.print_exc()
     finally:
-        # ワーカータスクをクリーンアップする
-        logger.info("Cancelling worker tasks...")
+        logger.info("Cancelling worker and conversation tasks...")
+        if conversation_task and not conversation_task.done():
+            conversation_task.cancel()
         synth_task.cancel()
         sender_task.cancel()
-        await asyncio.gather(synth_task, sender_task, return_exceptions=True)
-        logger.info("Worker tasks cancelled.")
+        await asyncio.gather(
+            conversation_task, synth_task, sender_task, return_exceptions=True
+        )
+        logger.info("All tasks cancelled.")
         manager.disconnect(websocket)
 
 
