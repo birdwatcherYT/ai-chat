@@ -56,7 +56,7 @@ chat:
     llm:
         # 発話内容の生成
         utterance:
-            engine: ollama
+            engine: ollama # gemini, ollama, openrouter, groq
             config:
                 # model: hf.co/mmnga/umiyuki-Umievo-itr012-Gleipnir-7B-gguf:Q8_0
                 # stop: ["\n", ":"] # 指示に従わないモデルは強制停止させる
@@ -82,6 +82,10 @@ ollama:
 openrouter:
     model: deepseek/deepseek-chat-v3-0324:free # 使用するOpenRouterモデル名
     base_url: https://openrouter.ai/api/v1 # OpenRouter APIのベースURL
+
+groq:
+    model: openai/gpt-oss-20b
+    base_url: https://api.groq.com/openai/v1/
 
 # Image
 gemini_image:
