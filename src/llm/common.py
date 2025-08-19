@@ -18,6 +18,7 @@ class LLMConfig:
         self.gemini = cfg.gemini
         self.ollama = cfg.ollama
         self.openrouter = cfg.openrouter
+        self.groq = cfg.groq
 
     def format(self, text: str) -> str:
         return text.format(user_name=self.user_name, **self.ai_names)

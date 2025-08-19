@@ -36,6 +36,7 @@
 - LLM
     - [Gemini](https://aistudio.google.com/apikey): APIキーを取得し、.envに`GOOGLE_API_KEY`を設定する
     - [Openrouter](https://openrouter.ai/): APIキーを取得し、.envに`OPENROUTER_API_KEY`を設定する
+    - [Groq](https://console.groq.com/home): APIキーを取得し、.envに`GROQ_API_KEY`を設定する
     - [Ollama](https://ollama.com/): `ollama run gemma3`などで使うモデルをインストール
 - 音声合成を使う場合（使うものを選択してインストール）
     - [VOICEVOX](https://voicevox.hiroshiba.jp/)をインストール

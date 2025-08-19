@@ -51,6 +51,9 @@ class LLMs:
         elif engine == "openrouter":
             params["openai_api_key"] = os.getenv("OPENROUTER_API_KEY")
             return ChatOpenAI(**params)
+        elif engine == "groq":
+            params["openai_api_key"] = os.getenv("GROQ_API_KEY")
+            return ChatOpenAI(**params)
 
         raise ValueError(
             f"Unknown or unsupported LLM engine specified for task '{task_name}': {engine}"
