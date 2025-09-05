@@ -190,45 +190,64 @@ const initializeSpeechRecognition = () => {
         return;
     }
     recognition = new webkitSpeechRecognition();
-    recognition.continuous = false;
+    // continuousをtrueに設定し、継続的な音声認識を有効化
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "ja-JP";
+
+    // 認識セッション中の最終テキストを保持する変数
+    let sessionFinalTranscript = "";
+
     recognition.onresult = (event) => {
         let interimTranscript = "";
-        let finalTranscript = "";
+        // 新しい結果をループ処理
         for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
+                // isFinalになったテキストをセッション変数に追加
+                sessionFinalTranscript += transcript;
             } else {
-                interimTranscript += event.results[i][0].transcript;
+                interimTranscript += transcript;
             }
         }
-        update_temp_user_message(interimTranscript);
-        if (finalTranscript) {
-            const trimmedTranscript = finalTranscript.trim();
+
+        // 一時的なユーザーメッセージを更新して、現在認識されている内容を表示
+        update_temp_user_message(sessionFinalTranscript + interimTranscript);
+
+        // このイベントでisFinalの結果が生成された場合、メッセージを送信する
+        // これにより、ユーザーが発話を区切った（ポーズした）タイミングで送信される
+        const trimmedFinal = sessionFinalTranscript.trim();
+        if (event.results[event.results.length - 1].isFinal && trimmedFinal) {
             manualStop = true;
-            recognition.abort();
-            sendUserMessage(trimmedTranscript);
+            recognition.abort(); // サーバーに送信するため、現在の認識を停止
+            sendUserMessage(trimmedFinal);
         }
     };
+
     recognition.onend = () => {
         micButton.classList.remove("recording");
         micButton.textContent = isContinuousMode ? "🎙️" : "🎤";
         remove_temp_user_message();
         remove_status("main-prompt");
+
+        sessionFinalTranscript = ""; // セッションが終了したのでリセット
+
         if (manualStop) {
             manualStop = false;
             return;
         }
         if (isContinuousMode && aiTurnFinished && !isPlaying) {
+            // 常時入力モードで、AIが話していない場合、少し待ってから再開
             setTimeout(() => startRecording(), 100);
         } else if (!isContinuousMode) {
             enable_input();
         }
     };
+
     recognition.onerror = (event) => {
         console.error("Speech recognition error:", event.error);
-        if (event.error !== "aborted") {
+        // no-speechはユーザーが話していないだけなので、エラー表示しない
+        if (event.error !== "aborted" && event.error !== "no-speech") {
             update_status("asr-failed", `音声認識エラー: ${event.error}`, 3000);
         }
     };
