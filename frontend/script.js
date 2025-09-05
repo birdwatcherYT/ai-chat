@@ -184,12 +184,14 @@ const updateAiToggleButtonState = () => {
 };
 
 const initializeSpeechRecognition = () => {
-    if (!("webkitSpeechRecognition" in window)) {
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionAPI) {
         alert("このブラウザは音声認識をサポートしていません。");
         micButton.disabled = true;
         return;
     }
-    recognition = new webkitSpeechRecognition();
+    recognition = new SpeechRecognitionAPI();
     // continuousをtrueに設定し、継続的な音声認識を有効化
     recognition.continuous = true;
     recognition.interimResults = true;
