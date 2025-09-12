@@ -1,16 +1,13 @@
 # ai-chat
 
 マルチモーダルなAIチャット
-![](./screenshot/img1.png)
-
 - AI複数話者 & 対話コントロール
 - 状況に応じた画像出力
 - 画像添付/Webカメラ対応
 - 音声認識 / 音声合成
 
 ## デモ動画
-
-<iframe width="1144" height="715" src="https://www.youtube.com/embed/ioRYvKl0VoE" title="ai-chat demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[![デモ動画](screenshot/thumbnail.png)](https://youtu.be/ioRYvKl0VoE)
 
 ## フォルダ構成
 
