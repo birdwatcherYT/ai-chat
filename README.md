@@ -10,9 +10,7 @@
 
 ## デモ動画
 
-- [マルチAI対話](https://youtu.be/xGwAYrVz54M)
-- [webカメラ](https://youtu.be/IxRt3SGqczc)
-- [全自動AIモード](https://youtu.be/4KFjETokM2A)
+<iframe width="1144" height="715" src="https://www.youtube.com/embed/ioRYvKl0VoE" title="ai-chat demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ## フォルダ構成
 

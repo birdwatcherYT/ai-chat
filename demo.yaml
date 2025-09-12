@@ -9,6 +9,7 @@ chat:
             engine: null # null, voicevox, coeiroink, aivisspeech
             # config:
             #   speaker_id: 13
+        # icon: /frontend/icon.ico
     ai:
         - name: A # 呼びたい名前に変える
           character: | # ここにAIのキャラクターを書いておく
@@ -17,7 +18,8 @@ chat:
           voice:
               engine: aivisspeech
               config:
-                  speaker_id: 888753760
+                  speaker_id: 1929056672
+          icon: /frontend/icons/ai0.jpg
         - name: B
           character: |
               - {user_name}の女友達
@@ -25,7 +27,8 @@ chat:
           voice:
               engine: aivisspeech
               config:
-                  speaker_id: 1431611904
+                  speaker_id: 113804960
+          icon: /frontend/icons/ai1.jpg
     additional_prompt: "" # 状況や会話展開などを書く
     initial_message:
         - name: "{user_name}"
@@ -48,17 +51,18 @@ chat:
         utterance:
             engine: gemini
             config:
-                model: gemini-2.5-flash-lite
+                model: gemini-2.5-flash
+                thinking_budget: 0
         # 次の話者の決定
         turn_control:
             engine: gemini
             config:
-                model: gemini-2.0-flash-lite
+                model: gemini-2.0-flash
         # 状況説明 (画像生成プロンプト用)
         situation:
             engine: gemini
             config:
-                model: gemini-2.0-flash
+                model: gemini-2.5-flash-lite
 
 # LLM
 gemini:
